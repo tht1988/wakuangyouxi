@@ -1,0 +1,851 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: Arial, sans-serif;
+    background-color: #f0f0f0;
+    color: #333;
+}
+
+.game-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto auto auto;
+    gap: 20px;
+}
+
+.player-info, .tools-info {
+    background-color: #fff;
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.player-info {
+    grid-column: 1 / 3;
+}
+
+.tools-info {
+    grid-column: 1 / 3;
+}
+
+.minerals, .backpack, .furnace, .crafting {
+    background-color: #fff;
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.minerals {
+    grid-column: 1 / 3;
+}
+
+.backpack {
+    grid-column: 1 / 2;
+}
+
+.furnace, .crafting {
+    grid-column: 2 / 3;
+}
+
+h2 {
+    margin-bottom: 15px;
+    color: #444;
+    font-size: 1.2em;
+}
+
+h3 {
+    margin-bottom: 10px;
+    color: #555;
+    font-size: 1em;
+}
+
+.info-item {
+    margin-bottom: 8px;
+    font-size: 0.9em;
+}
+
+.save-controls {
+    margin-top: 15px;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.save-controls button {
+    background-color: #2196F3;
+    color: white;
+    border: none;
+    padding: 8px 15px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 0.9em;
+    transition: background-color 0.2s ease;
+}
+
+.save-controls button:hover {
+    background-color: #0b7dda;
+}
+
+.save-message {
+    font-size: 0.8em;
+    color: #4CAF50;
+    margin-left: 10px;
+    min-width: 100px;
+}
+
+.mineral-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 10px;
+    margin-bottom: 15px;
+}
+
+.mineral {
+    background-color: #f9f9f9;
+    padding: 10px;
+    border-radius: 5px;
+    border: 1px solid #ddd;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.mineral:hover {
+    background-color: #e9e9e9;
+    transform: translateY(-2px);
+}
+
+.mineral.selected {
+    border-color: #4CAF50;
+    background-color: #e8f5e8;
+}
+
+.mineral-name {
+    font-weight: bold;
+    margin-bottom: 5px;
+}
+
+.mineral-level {
+    font-size: 0.8em;
+    color: #666;
+    margin-bottom: 5px;
+}
+
+.mineral-time {
+    font-size: 0.8em;
+    color: #888;
+    margin-bottom: 5px;
+}
+
+.mineral-price {
+    font-size: 0.8em;
+    color: #4CAF50;
+    margin-bottom: 5px;
+}
+
+.mineral-drops {
+    font-size: 0.8em;
+    color: #FF9800;
+    margin-bottom: 5px;
+    font-style: italic;
+}
+
+.mine-btn {
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    padding: 5px 10px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 0.8em;
+    margin-bottom: 5px;
+}
+
+.mine-btn:hover {
+    background-color: #45a049;
+}
+
+.mine-btn:disabled {
+    background-color: #cccccc;
+    cursor: not-allowed;
+}
+
+.continuous-mine-btn {
+    background-color: #2196F3;
+    color: white;
+    border: none;
+    padding: 5px 10px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 0.8em;
+}
+
+.continuous-mine-btn:hover {
+    background-color: #0b7dda;
+}
+
+.progress-container {
+    margin-top: 5px;
+}
+
+.progress-bar {
+    width: 100%;
+    height: 10px;
+    background-color: #ddd;
+    border-radius: 5px;
+    overflow: hidden;
+    margin-bottom: 5px;
+}
+
+.progress-fill {
+    height: 100%;
+    background-color: #4CAF50;
+    width: 0%;
+    transition: width 0.1s linear;
+}
+
+.countdown {
+    font-size: 0.8em;
+    color: #888;
+}
+
+.backpack-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 5px;
+    margin-bottom: 15px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.backpack-slot {
+    background-color: #f9f9f9;
+    border: 1px solid #ddd;
+    border-radius: 3px;
+    padding: 5px;
+    text-align: center;
+    font-size: 0.8em;
+    min-height: 50px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.backpack-slot.empty {
+    background-color: #e9e9e9;
+}
+
+.item-name {
+    font-weight: bold;
+    margin-bottom: 2px;
+}
+
+.item-count {
+    font-size: 0.7em;
+    color: #666;
+}
+
+.backpack-controls {
+    margin-top: 10px;
+}
+
+.sell-panel, .disassemble-panel {
+    margin-top: 10px;
+    padding: 10px;
+    background-color: #f9f9f9;
+    border-radius: 5px;
+    display: none;
+}
+
+.sell-panel.active, .disassemble-panel.active {
+    display: block;
+}
+
+/* 物品总数显示样式 */
+.item-totals {
+    margin-top: 15px;
+    padding: 10px;
+    background-color: #f9f9f9;
+    border-radius: 5px;
+    border: 1px solid #ddd;
+}
+
+.item-totals h3 {
+    margin-bottom: 10px;
+    color: #555;
+    font-size: 1em;
+}
+
+.totals-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 5px;
+}
+
+.total-item {
+    font-size: 0.9em;
+    color: #666;
+}
+
+/* 获得信息区样式 */
+.gained-info {
+    margin-top: 15px;
+    padding: 15px;
+    background-color: #f9f9f9;
+    border-radius: 5px;
+    border: 1px solid #ddd;
+}
+
+.gained-info h3 {
+    margin-bottom: 10px;
+    color: #555;
+    font-size: 1em;
+}
+
+.gained-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 10px;
+}
+
+.gained-stat {
+    font-size: 0.9em;
+    color: #444;
+    font-weight: bold;
+}
+
+.gained-stat span {
+    color: #4CAF50;
+}
+
+/* 滚动信息提示区样式 */
+.scroll-messages {
+    margin-top: 15px;
+    padding: 15px;
+    background-color: #f9f9f9;
+    border-radius: 5px;
+    border: 1px solid #ddd;
+}
+
+.scroll-messages h3 {
+    margin-bottom: 10px;
+    color: #555;
+    font-size: 1em;
+}
+
+.messages-container {
+    max-height: 200px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.message-item {
+    padding: 8px;
+    background-color: #ffffff;
+    border-radius: 3px;
+    border-left: 3px solid #4CAF50;
+    font-size: 0.9em;
+    color: #333;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* 滚动条样式 */
+.messages-container::-webkit-scrollbar {
+    width: 8px;
+}
+
+.messages-container::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+}
+
+.messages-container::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 4px;
+}
+
+.messages-container::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+#sell-item, #sell-amount, #confirm-sell {
+    margin-right: 10px;
+    margin-bottom: 5px;
+    padding: 5px;
+}
+
+#sell-amount {
+    width: 60px;
+}
+
+.furnace-controls, .crafting-items {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.furnace-controls button, .crafting-items button {
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    padding: 8px 15px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 0.9em;
+    transition: background-color 0.2s ease;
+}
+
+.furnace-controls button:hover, .crafting-items button:hover {
+    background-color: #45a049;
+}
+
+.furnace-controls button:disabled, .crafting-items button:disabled {
+    background-color: #cccccc;
+    cursor: not-allowed;
+}
+
+/* 背包扩充制作面板样式 */
+.craft-backpack-panel {
+    margin-top: 20px;
+    padding: 15px;
+    background-color: #f9f9f9;
+    border-radius: 5px;
+    border: 1px solid #ddd;
+}
+
+.craft-expansion-list {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    margin-top: 15px;
+}
+
+.craft-expansion-item {
+    padding: 10px;
+    background-color: #fff;
+    border-radius: 3px;
+    border: 1px solid #eee;
+}
+
+.craft-expansion-item h4 {
+    margin-bottom: 5px;
+    color: #333;
+}
+
+.craft-expansion-item p {
+    margin-bottom: 5px;
+    font-size: 0.9em;
+    color: #666;
+}
+
+.craft-expansion-item button {
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    padding: 5px 10px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 0.8em;
+    margin-top: 5px;
+}
+
+.craft-expansion-item button:hover {
+    background-color: #45a049;
+}
+
+/* 背包堆叠大小显示 */
+.backpack h2 .stack-size {
+    font-size: 0.8em;
+    color: #666;
+    font-weight: normal;
+}
+
+/* 背包扩充栏位样式 */
+.backpack-expansions {
+    margin-top: 15px;
+    padding: 15px;
+    background-color: #f9f9f9;
+    border-radius: 5px;
+    border: 1px solid #ddd;
+}
+
+.expansion-slots {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.expansion-slot {
+    background-color: #fff;
+    border: 1px dashed #ddd;
+    border-radius: 3px;
+    padding: 10px;
+    text-align: center;
+    min-height: 60px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.expansion-slot:hover {
+    background-color: #e8f5e8;
+    border-color: #4CAF50;
+}
+
+.expansion-slot.filled {
+    border-style: solid;
+    background-color: #f0f8ff;
+}
+
+.expansion-slot .slot-content {
+    font-size: 0.9em;
+    font-weight: bold;
+    color: #333;
+}
+
+.expansion-slot .slot-description {
+    font-size: 0.7em;
+    color: #666;
+    margin-top: 5px;
+}
+
+.expansion-slot .remove-btn {
+    margin-top: 5px;
+    background-color: #f44336;
+    color: white;
+    border: none;
+    padding: 3px 8px;
+    border-radius: 2px;
+    cursor: pointer;
+    font-size: 0.7em;
+    transition: background-color 0.2s ease;
+}
+
+.expansion-slot .remove-btn:hover {
+    background-color: #d32f2f;
+}
+
+/* 背包扩充选择面板样式 */
+.expansion-selection-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.expansion-selection-panel {
+    background-color: white;
+    padding: 20px;
+    border-radius: 5px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    max-width: 500px;
+    width: 100%;
+    max-height: 80vh;
+    overflow-y: auto;
+}
+
+.expansion-selection-panel h3 {
+    margin-bottom: 15px;
+    color: #444;
+    font-size: 1.2em;
+}
+
+.expansion-list {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.expansion-option {
+    background-color: #f9f9f9;
+    padding: 15px;
+    border-radius: 3px;
+    border: 1px solid #ddd;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.expansion-name {
+    font-weight: bold;
+    color: #333;
+}
+
+.expansion-description {
+    font-size: 0.9em;
+    color: #666;
+    margin-top: 5px;
+}
+
+.expansion-option button {
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    padding: 8px 15px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 0.9em;
+    transition: background-color 0.2s ease;
+}
+
+.expansion-option button:hover {
+    background-color: #45a049;
+}
+
+/* 响应式设计优化，适配手机浏览器 */
+@media (max-width: 768px) {
+    .game-container {
+        grid-template-columns: 1fr;
+        padding: 10px;
+        gap: 10px;
+    }
+    
+    .player-info, .tools-info, .minerals, .backpack, .furnace, .crafting {
+        grid-column: 1 / 2;
+        padding: 10px;
+    }
+    
+    /* 优化移动端触摸体验 */
+    button {
+        min-height: 44px;
+        min-width: 44px;
+        font-size: 1em;
+        padding: 10px 15px;
+    }
+    
+    /* 优化背包显示 */
+    .backpack-grid {
+        grid-template-columns: repeat(4, 1fr);
+        gap: 3px;
+        max-height: 150px;
+    }
+    
+    .backpack-slot {
+        min-height: 40px;
+        padding: 3px;
+    }
+    
+    /* 优化矿物显示 */
+    .mineral-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 5px;
+    }
+    
+    .mineral {
+        padding: 8px;
+    }
+    
+    /* 优化物品总数显示 */
+    .totals-list {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    /* 优化保存控制按钮 */
+    .save-controls {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 5px;
+    }
+    
+    /* 优化制作按钮 */
+    .crafting-items button {
+        margin-bottom: 5px;
+    }
+    
+    /* 优化消息容器 */
+    .messages-container {
+        max-height: 150px;
+    }
+}
+
+/* 添加触摸事件样式 */
+button:active {
+    transform: scale(0.95);
+    transition: transform 0.1s ease;
+}
+
+/* 优化移动端字体大小 */
+@media (max-width: 480px) {
+    h2 {
+        font-size: 1.1em;
+    }
+    
+    h3 {
+        font-size: 0.95em;
+    }
+    
+    .info-item {
+        font-size: 0.85em;
+    }
+    
+    .item-name {
+        font-size: 0.85em;
+    }
+    
+    .item-count {
+        font-size: 0.75em;
+    }
+}
+
+/* 用户认证界面样式 */
+.auth-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 2000;
+}
+
+.auth-content {
+    background-color: white;
+    border-radius: 8px;
+    width: 90%;
+    max-width: 400px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    overflow: hidden;
+}
+
+.auth-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px 20px;
+    background-color: #f5f5f5;
+    border-bottom: 1px solid #ddd;
+}
+
+.auth-header h2 {
+    margin: 0;
+    font-size: 1.2em;
+    color: #333;
+}
+
+.close-btn {
+    background: none;
+    border: none;
+    font-size: 1.5em;
+    cursor: pointer;
+    color: #666;
+    padding: 0;
+    width: 30px;
+    height: 30px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.auth-body {
+    padding: 20px;
+}
+
+.auth-tabs {
+    display: flex;
+    margin-bottom: 20px;
+    border-bottom: 1px solid #ddd;
+}
+
+.auth-tab {
+    flex: 1;
+    padding: 10px;
+    background: none;
+    border: none;
+    font-size: 1em;
+    cursor: pointer;
+    color: #666;
+    transition: all 0.2s ease;
+}
+
+.auth-tab.active {
+    color: #2196F3;
+    border-bottom: 2px solid #2196F3;
+    font-weight: bold;
+}
+
+.auth-form {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.auth-form input {
+    padding: 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 1em;
+}
+
+.auth-form button {
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    padding: 12px;
+    border-radius: 4px;
+    font-size: 1em;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.auth-form button:hover {
+    background-color: #45a049;
+}
+
+.auth-footer {
+    padding: 15px 20px;
+    background-color: #f5f5f5;
+    border-top: 1px solid #ddd;
+    text-align: center;
+}
+
+.guest-btn {
+    background-color: #2196F3;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 4px;
+    font-size: 0.9em;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.guest-btn:hover {
+    background-color: #0b7dda;
+}
+
+/* 适配移动端认证界面 */
+@media (max-width: 480px) {
+    .auth-content {
+        width: 95%;
+        margin: 10px;
+    }
+    
+    .auth-header, .auth-body, .auth-footer {
+        padding: 10px;
+    }
+    
+    .auth-form input {
+        padding: 10px;
+    }
+}
