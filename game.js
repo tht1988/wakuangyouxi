@@ -44,6 +44,7 @@ let gameData = {
         baseStackSize: 20,
         currentStackSize: 20
     },
+    unlockedRecipes: {}, // 存储已解锁的配方
     miningCount: {},
     selectedMineral: null
 };
@@ -313,7 +314,6 @@ function generateMineralGrid() {
         const pickaxeBonus = Math.min(0.4, gameData.tools.pickaxe.level * 0.05);
         const actualTime = mineral.baseTime * (1 - pickaxeBonus);
         const canMine = gameData.player.level >= mineral.minLevel && 
-                       gameData.player.level <= mineral.maxLevel &&
                        (!mineral.toolReq || gameData.tools.pickaxe.level >= mineral.toolReq);
         const isCurrentlyMining = continuousMining && currentContinuousMineral === mineral.name;
         let continuousBtnText = '';
@@ -342,7 +342,7 @@ function generateMineralGrid() {
         }
         mineralEl.innerHTML = `
             <div class="mineral-name">${mineral.name}</div>
-            <div class="mineral-level">需求等级: ${mineral.minLevel}-${mineral.maxLevel}</div>
+            <div class="mineral-level">需求等级: ${mineral.minLevel}+</div>
             ${dropsHTML}
             <div class="mineral-time">开采时间: ${actualTime.toFixed(1)}秒</div>
             <div class="mineral-price">价格: ${mineral.price}金币</div>
@@ -705,8 +705,105 @@ function completeMining(mineral) {
     }
     addGainedExp(mineral.exp);
     checkLevelUp();
-    addToBackpack(mineral.name);
-    addGainedMineral();
+    // 检查工具状态和消耗
+    if (!gameData.tools.cart) gameData.tools.cart = { crafted: false, active: true };
+    if (!gameData.tools.headlight) gameData.tools.headlight = { crafted: false, active: true };
+    
+    // 矿车加成：增加采矿数量，消耗煤矿
+    let baseAmount = 1;
+    if (gameData.tools.cart && gameData.tools.cart.crafted && gameData.tools.cart.active) {
+        // 检查煤矿数量
+        if (hasEnoughItem('煤矿', 1)) {
+            // 消耗1煤矿
+            consumeItem('煤矿', 1);
+            // 矿车每5级提升1个采矿数量
+            const cartBonus = Math.floor(gameData.tools.cart.level / 5);
+            baseAmount = 1 + cartBonus;
+        } else {
+            // 煤矿不足，自动停用矿车
+            gameData.tools.cart.active = false;
+            addMessage('煤矿不足，矿车已自动停止使用！');
+        }
+    }
+    
+    // 添加基础矿物
+    for (let i = 0; i < baseAmount; i++) {
+        addToBackpack(mineral.name);
+        addGainedMineral();
+    }
+    
+    // 头灯效果：增加高一级矿物发现几率
+    if (gameData.tools.headlight && gameData.tools.headlight.crafted && gameData.tools.headlight.active) {
+        // 检查头灯的金币消耗状态
+        if (!gameData.tools.headlight.lastGoldConsume) {
+            gameData.tools.headlight.lastGoldConsume = Date.now();
+        }
+        
+        // 每30秒消耗1金币
+        const now = Date.now();
+        if (now - gameData.tools.headlight.lastGoldConsume >= 30000) {
+            if (gameData.player.gold >= 1) {
+                gameData.player.gold -= 1;
+                gameData.tools.headlight.lastGoldConsume = now;
+            } else {
+                // 金币不足，自动停用头灯
+                gameData.tools.headlight.active = false;
+                addMessage('金币不足，头灯已自动停止使用！');
+            }
+        }
+        
+        // 计算高一级矿物发现几率
+        const higherLevelChance = 0.1 + (gameData.tools.headlight.level * 0.01);
+        if (Math.random() < higherLevelChance) {
+            // 生成高一级矿物
+            const mineralLevels = ['石矿', '煤矿', '铁矿', '铜矿', '钴矿', '镍矿', '银矿', '白金矿', '金矿', '水晶矿'];
+            const currentIndex = mineralLevels.indexOf(mineral.name);
+            if (currentIndex < mineralLevels.length - 1) {
+                const higherMineral = mineralLevels[currentIndex + 1];
+                const higherAmount = Math.floor(Math.random() * 2) + 1;
+                for (let i = 0; i < higherAmount; i++) {
+                    addToBackpack(higherMineral);
+                    addGainedMineral();
+                }
+                addMessage(`头灯效果：发现了 ${higherMineral}×${higherAmount}！`);
+            }
+        }
+    }
+    
+    // 配方获得机制 - 将配方作为物品添加到背包中
+    
+    // 铜铁合金配方：挖铁矿随机获得（概率10%）
+    if (mineral.name === '铁矿') {
+        if (Math.random() < 0.1) {
+            addToBackpack('铜铁合金配方');
+            addMessage('恭喜获得铜铁合金配方！');
+        }
+    }
+    
+    // 铜钴合金配方：挖钴矿随机获得（概率1%）
+    if (mineral.name === '钴矿') {
+        if (Math.random() < 0.01) {
+            addToBackpack('铜钴合金配方');
+            addMessage('恭喜获得铜钴合金配方！');
+        }
+    }
+    
+    // 铜镍合金配方：挖镍矿随机获得（概率0.1%）
+    if (mineral.name === '镍矿') {
+        if (Math.random() < 0.001) {
+            addToBackpack('铜镍合金配方');
+            addMessage('恭喜获得铜镍合金配方！');
+        }
+    }
+    
+    // 铜银合金配方：挖银矿随机获得（概率0.01%）
+    if (mineral.name === '银矿') {
+        if (Math.random() < 0.0001) {
+            addToBackpack('铜银合金配方');
+            addMessage('恭喜获得铜银合金配方！');
+        }
+    }
+    
     const obtainedDrops = [];
     if (mineral.drops) {
         mineral.drops.forEach(drop => {
@@ -761,6 +858,189 @@ function addToBackpack(itemName) {
     updateBackpackDisplay();
 }
 
+// 获取工具升级需求
+function getToolUpgradeRequirements(toolType, level) {
+    if (toolType === 'pickaxe') {
+        // 采矿锄升级需求
+        const requirements = {
+            1: { materials: { '石矿': 30 }, gold: 10 },
+            2: { materials: { '石矿': 60 }, gold: 15 },
+            3: { materials: { '石矿': 90 }, gold: 23 },
+            4: { materials: { '铁矿': 30 }, gold: 35 },
+            5: { materials: { '铁矿': 60 }, gold: 53 },
+            6: { materials: { '铁矿': 90 }, gold: 80 },
+            7: { materials: { '铁矿': 90, '铜铁合金': 1 }, gold: 120 },
+            8: { materials: { '铁矿': 90, '铜铁合金': 3 }, gold: 180 },
+            9: { materials: { '铁矿': 90, '铜铁合金': 5 }, gold: 270 },
+            10: { materials: { '铜矿': 30, '铜铁合金': 7 }, gold: 405 },
+            11: { materials: { '铜矿': 60, '铜铁合金': 9 }, gold: 608 },
+            12: { materials: { '铜矿': 90, '铜铁合金': 11 }, gold: 912 },
+            13: { materials: { '铜矿': 90, '铜铁合金': 13 }, gold: 1368 },
+            14: { materials: { '铜矿': 90, '铜铁合金': 15 }, gold: 2052 },
+            15: { materials: { '铜矿': 90, '铜铁合金': 17 }, gold: 3078 }
+        };
+        
+        // 15级以上的需求，每级增加2个铜铁合金，金币为前一级的150%
+        if (level > 15) {
+            const baseLevel = 15;
+            const baseRequirements = requirements[baseLevel];
+            const additionalLevel = level - baseLevel;
+            const materials = { ...baseRequirements.materials };
+            materials['铜铁合金'] = baseRequirements.materials['铜铁合金'] + (additionalLevel * 2);
+            const gold = Math.floor(baseRequirements.gold * Math.pow(1.5, additionalLevel));
+            return { materials, gold };
+        }
+        
+        return requirements[level] || { materials: {}, gold: 0 };
+    }
+    
+    if (toolType === 'cart') {
+        // 矿车升级需求
+        const requirements = {
+            1: { materials: { '石矿': 50 }, gold: 20 },
+            2: { materials: { '石矿': 100 }, gold: 30 },
+            3: { materials: { '铁矿': 50 }, gold: 45 },
+            4: { materials: { '铁矿': 100 }, gold: 68 },
+            5: { materials: { '铁矿': 150, '铜铁合金': 2 }, gold: 102 },
+            6: { materials: { '铜矿': 50, '铜铁合金': 4 }, gold: 153 },
+            7: { materials: { '铜矿': 100, '铜铁合金': 6 }, gold: 230 },
+            8: { materials: { '铜矿': 150, '铜铁合金': 8 }, gold: 345 },
+            9: { materials: { '钴矿': 50, '铜钴合金': 2 }, gold: 518 },
+            10: { materials: { '钴矿': 100, '铜钴合金': 4 }, gold: 777 }
+        };
+        
+        // 10级以上的需求，每级增加2个铜钴合金，金币为前一级的150%
+        if (level > 10) {
+            const baseLevel = 10;
+            const baseRequirements = requirements[baseLevel];
+            const additionalLevel = level - baseLevel;
+            const materials = { ...baseRequirements.materials };
+            materials['铜钴合金'] = baseRequirements.materials['铜钴合金'] + (additionalLevel * 2);
+            const gold = Math.floor(baseRequirements.gold * Math.pow(1.5, additionalLevel));
+            return { materials, gold };
+        }
+        
+        return requirements[level] || { materials: {}, gold: 0 };
+    }
+    
+    if (toolType === 'headlight') {
+        // 头灯升级需求
+        const requirements = {
+            1: { materials: { '石矿': 80 }, gold: 50 },
+            2: { materials: { '铁矿': 80 }, gold: 75 },
+            3: { materials: { '铁矿': 120 }, gold: 113 },
+            4: { materials: { '铜矿': 80, '铜铁合金': 3 }, gold: 170 },
+            5: { materials: { '铜矿': 120, '铜铁合金': 5 }, gold: 255 },
+            6: { materials: { '钴矿': 80, '铜钴合金': 2 }, gold: 383 },
+            7: { materials: { '钴矿': 120, '铜钴合金': 4 }, gold: 575 },
+            8: { materials: { '镍矿': 80, '铜镍合金': 2 }, gold: 863 },
+            9: { materials: { '镍矿': 120, '铜镍合金': 4 }, gold: 1295 },
+            10: { materials: { '银矿': 80, '铜银合金': 2 }, gold: 1943 }
+        };
+        
+        // 10级以上的需求，每级增加2个铜银合金，金币为前一级的150%
+        if (level > 10) {
+            const baseLevel = 10;
+            const baseRequirements = requirements[baseLevel];
+            const additionalLevel = level - baseLevel;
+            const materials = { ...baseRequirements.materials };
+            materials['铜银合金'] = baseRequirements.materials['铜银合金'] + (additionalLevel * 2);
+            const gold = Math.floor(baseRequirements.gold * Math.pow(1.5, additionalLevel));
+            return { materials, gold };
+        }
+        
+        return requirements[level] || { materials: {}, gold: 0 };
+    }
+    
+    return { materials: {}, gold: 0 };
+}
+
+// 手动升级工具
+function upgradeTool(toolType) {
+    let tool;
+    let toolName;
+    
+    switch (toolType) {
+        case 'pickaxe':
+            tool = gameData.tools.pickaxe;
+            toolName = '采矿锄';
+            break;
+        case 'cart':
+            tool = gameData.tools.cart;
+            toolName = '矿车';
+            break;
+        case 'headlight':
+            tool = gameData.tools.headlight;
+            toolName = '头灯';
+            break;
+        default:
+            return;
+    }
+    
+    // 检查工具是否已制作（矿车和头灯需要先制作）
+    if ((toolType === 'cart' || toolType === 'headlight') && !tool.crafted) {
+        alert(`请先制作${toolName}！`);
+        return;
+    }
+    
+    // 检查工具是否已达到最高等级
+    if (tool.level >= 50) {
+        alert(`${toolName}已达到最高等级！`);
+        return;
+    }
+    
+    // 计算下一级
+    const nextLevel = tool.level + 1;
+    const requirements = getToolUpgradeRequirements(toolType, nextLevel);
+    
+    // 检查材料是否足够
+    let hasMaterials = true;
+    for (const [material, amount] of Object.entries(requirements.materials)) {
+        if (!hasEnoughItem(material, amount)) {
+            hasMaterials = false;
+            break;
+        }
+    }
+    
+    // 检查金币是否足够
+    const hasGold = gameData.player.gold >= requirements.gold;
+    
+    if (!hasMaterials) {
+        let materialsText = '';
+        for (const [material, amount] of Object.entries(requirements.materials)) {
+            materialsText += `${material}×${amount} `;
+        }
+        alert(`材料不足！需要：${materialsText}`);
+        return;
+    }
+    
+    if (!hasGold) {
+        alert(`金币不足！需要${requirements.gold}金币`);
+        return;
+    }
+    
+    // 消耗材料
+    for (const [material, amount] of Object.entries(requirements.materials)) {
+        consumeItem(material, amount);
+    }
+    
+    // 消耗金币
+    gameData.player.gold -= requirements.gold;
+    
+    // 升级工具
+    tool.level = nextLevel;
+    
+    // 更新UI
+    updateUI();
+    updateBackpackDisplay();
+    
+    // 添加升级消息
+    addMessage(`${toolName}升级到 ${nextLevel} 级！`);
+    
+    // 保存游戏
+    saveGame();
+}
+
 function checkLevelUp() {
     while (gameData.player.exp >= gameData.player.nextExp) {
         gameData.player.exp -= gameData.player.nextExp;
@@ -768,32 +1048,173 @@ function checkLevelUp() {
         gameData.player.nextExp = Math.floor(gameData.player.nextExp * 1.5);
         addMessage(`玩家升级到 ${gameData.player.level} 级！`);
     }
-    while (gameData.tools.pickaxe.exp >= gameData.tools.pickaxe.nextExp) {
-        gameData.tools.pickaxe.exp -= gameData.tools.pickaxe.nextExp;
-        gameData.tools.pickaxe.level++;
-        gameData.tools.pickaxe.nextExp = Math.floor(gameData.tools.pickaxe.nextExp * 1.5);
-        addMessage(`采矿锄升级到 ${gameData.tools.pickaxe.level} 级！`);
+    
+    // 采矿锄：初始经验50点，每级增加50%，最大50级
+    if (gameData.tools.pickaxe.exp === undefined) gameData.tools.pickaxe.exp = 0;
+    if (gameData.tools.pickaxe.nextExp === undefined) gameData.tools.pickaxe.nextExp = 50;
+    while (gameData.tools.pickaxe.exp >= gameData.tools.pickaxe.nextExp && gameData.tools.pickaxe.level < 50) {
+        const nextLevel = gameData.tools.pickaxe.level + 1;
+        const requirements = getToolUpgradeRequirements('pickaxe', nextLevel);
+        
+        // 检查材料是否足够
+        let hasMaterials = true;
+        for (const [material, amount] of Object.entries(requirements.materials)) {
+            if (!hasEnoughItem(material, amount)) {
+                hasMaterials = false;
+                break;
+            }
+        }
+        
+        // 检查金币是否足够
+        const hasGold = gameData.player.gold >= requirements.gold;
+        
+        if (hasMaterials && hasGold) {
+            // 消耗材料
+            for (const [material, amount] of Object.entries(requirements.materials)) {
+                consumeItem(material, amount);
+            }
+            
+            // 消耗金币
+            gameData.player.gold -= requirements.gold;
+            
+            // 升级
+            gameData.tools.pickaxe.exp -= gameData.tools.pickaxe.nextExp;
+            gameData.tools.pickaxe.level++;
+            gameData.tools.pickaxe.nextExp = Math.floor(gameData.tools.pickaxe.nextExp * 1.5);
+            addMessage(`采矿锄升级到 ${gameData.tools.pickaxe.level} 级！`);
+        } else {
+            // 材料或金币不足，无法升级
+            if (!hasMaterials) {
+                addMessage(`采矿锄升级需要材料：${Object.entries(requirements.materials).map(([mat, amt]) => `${mat}×${amt}`).join(', ')}`);
+            }
+            if (!hasGold) {
+                addMessage(`采矿锄升级需要 ${requirements.gold} 金币`);
+            }
+            break;
+        }
     }
-    if (gameData.tools.cart.crafted) {
+    
+    // 矿车：初始经验100点，每级增加50%，最大50级
+    if (gameData.tools.cart && gameData.tools.cart.crafted) {
         if (gameData.tools.cart.exp === undefined) gameData.tools.cart.exp = 0;
-        if (gameData.tools.cart.nextExp === undefined) gameData.tools.cart.nextExp = 50;
-        while (gameData.tools.cart.exp >= gameData.tools.cart.nextExp) {
-            gameData.tools.cart.exp -= gameData.tools.cart.nextExp;
-            gameData.tools.cart.level++;
-            gameData.tools.cart.nextExp = Math.floor(gameData.tools.cart.nextExp * 1.5);
-            addMessage(`矿车升级到 ${gameData.tools.cart.level} 级！`);
+        if (gameData.tools.cart.nextExp === undefined) gameData.tools.cart.nextExp = 100;
+        while (gameData.tools.cart.exp >= gameData.tools.cart.nextExp && gameData.tools.cart.level < 50) {
+            const nextLevel = gameData.tools.cart.level + 1;
+            const requirements = getToolUpgradeRequirements('cart', nextLevel);
+            
+            // 检查材料是否足够
+            let hasMaterials = true;
+            for (const [material, amount] of Object.entries(requirements.materials)) {
+                if (!hasEnoughItem(material, amount)) {
+                    hasMaterials = false;
+                    break;
+                }
+            }
+            
+            // 检查金币是否足够
+            const hasGold = gameData.player.gold >= requirements.gold;
+            
+            if (hasMaterials && hasGold) {
+                // 消耗材料
+                for (const [material, amount] of Object.entries(requirements.materials)) {
+                    consumeItem(material, amount);
+                }
+                
+                // 消耗金币
+                gameData.player.gold -= requirements.gold;
+                
+                // 升级
+                gameData.tools.cart.exp -= gameData.tools.cart.nextExp;
+                gameData.tools.cart.level++;
+                gameData.tools.cart.nextExp = Math.floor(gameData.tools.cart.nextExp * 1.5);
+                addMessage(`矿车升级到 ${gameData.tools.cart.level} 级！`);
+            } else {
+                // 材料或金币不足，无法升级
+                if (!hasMaterials) {
+                    addMessage(`矿车升级需要材料：${Object.entries(requirements.materials).map(([mat, amt]) => `${mat}×${amt}`).join(', ')}`);
+                }
+                if (!hasGold) {
+                    addMessage(`矿车升级需要 ${requirements.gold} 金币`);
+                }
+                break;
+            }
         }
     }
-    if (gameData.tools.headlight.crafted) {
+    
+    // 头灯：初始经验200点，每级增加50%，最大50级
+    if (gameData.tools.headlight && gameData.tools.headlight.crafted) {
         if (gameData.tools.headlight.exp === undefined) gameData.tools.headlight.exp = 0;
-        if (gameData.tools.headlight.nextExp === undefined) gameData.tools.headlight.nextExp = 50;
-        while (gameData.tools.headlight.exp >= gameData.tools.headlight.nextExp) {
-            gameData.tools.headlight.exp -= gameData.tools.headlight.nextExp;
-            gameData.tools.headlight.level++;
-            gameData.tools.headlight.nextExp = Math.floor(gameData.tools.headlight.nextExp * 1.5);
-            addMessage(`头灯升级到 ${gameData.tools.headlight.level} 级！`);
+        if (gameData.tools.headlight.nextExp === undefined) gameData.tools.headlight.nextExp = 200;
+        while (gameData.tools.headlight.exp >= gameData.tools.headlight.nextExp && gameData.tools.headlight.level < 50) {
+            const nextLevel = gameData.tools.headlight.level + 1;
+            const requirements = getToolUpgradeRequirements('headlight', nextLevel);
+            
+            // 检查材料是否足够
+            let hasMaterials = true;
+            for (const [material, amount] of Object.entries(requirements.materials)) {
+                if (!hasEnoughItem(material, amount)) {
+                    hasMaterials = false;
+                    break;
+                }
+            }
+            
+            // 检查金币是否足够
+            const hasGold = gameData.player.gold >= requirements.gold;
+            
+            if (hasMaterials && hasGold) {
+                // 消耗材料
+                for (const [material, amount] of Object.entries(requirements.materials)) {
+                    consumeItem(material, amount);
+                }
+                
+                // 消耗金币
+                gameData.player.gold -= requirements.gold;
+                
+                // 升级
+                gameData.tools.headlight.exp -= gameData.tools.headlight.nextExp;
+                gameData.tools.headlight.level++;
+                gameData.tools.headlight.nextExp = Math.floor(gameData.tools.headlight.nextExp * 1.5);
+                addMessage(`头灯升级到 ${gameData.tools.headlight.level} 级！`);
+            } else {
+                // 材料或金币不足，无法升级
+                if (!hasMaterials) {
+                    addMessage(`头灯升级需要材料：${Object.entries(requirements.materials).map(([mat, amt]) => `${mat}×${amt}`).join(', ')}`);
+                }
+                if (!hasGold) {
+                    addMessage(`头灯升级需要 ${requirements.gold} 金币`);
+                }
+                break;
+            }
         }
     }
+}
+
+function getToolDescription() {
+    // 确保工具对象存在
+    if (!gameData.tools.cart) gameData.tools.cart = { crafted: false, active: true };
+    if (!gameData.tools.headlight) gameData.tools.headlight = { crafted: false, active: true };
+    
+    const descriptions = {
+        pickaxe: {
+            name: '采矿锄',
+            description: '加快采矿速度',
+            current: `当前效果: 采矿速度提升 ${Math.min(50, gameData.tools.pickaxe.level * 1)}%`,
+            next: gameData.tools.pickaxe.level < 50 ? `下一级: 采矿速度提升 ${Math.min(50, (gameData.tools.pickaxe.level + 1) * 1)}%` : '已达到最高等级'
+        },
+        cart: {
+            name: '矿车',
+            description: '增加采矿数量，每次消耗1煤矿',
+            current: gameData.tools.cart.crafted ? `当前效果: 采矿数量+${Math.floor(gameData.tools.cart.level / 5)}个` : '未制作',
+            next: gameData.tools.cart.crafted ? (gameData.tools.cart.level < 50 ? `下一级: 采矿数量+${Math.floor((gameData.tools.cart.level + 1) / 5)}个` : '已达到最高等级') : '制作后获得效果'
+        },
+        headlight: {
+            name: '头灯',
+            description: '增加高一级矿物发现几率，每30秒消耗1金币',
+            current: gameData.tools.headlight.crafted ? `当前效果: 高一级矿物几率+${10 + gameData.tools.headlight.level * 1}%` : '未制作',
+            next: gameData.tools.headlight.crafted ? (gameData.tools.headlight.level < 50 ? `下一级: 高一级矿物几率+${10 + (gameData.tools.headlight.level + 1) * 1}%` : '已达到最高等级') : '制作后获得效果'
+        }
+    };
+    return descriptions;
 }
 
 function updateUI() {
@@ -801,12 +1222,63 @@ function updateUI() {
     document.getElementById('player-exp').textContent = gameData.player.exp;
     document.getElementById('player-next-exp').textContent = gameData.player.nextExp;
     document.getElementById('player-gold').textContent = gameData.player.gold;
+    
+    const toolDescriptions = getToolDescription();
+    
     document.getElementById('pickaxe-level').textContent = `lv${gameData.tools.pickaxe.level}`;
     document.getElementById('pickaxe-exp').textContent = gameData.tools.pickaxe.exp;
     document.getElementById('pickaxe-next-exp').textContent = gameData.tools.pickaxe.nextExp;
-    document.getElementById('cart-status').textContent = gameData.tools.cart.crafted ? `lv${gameData.tools.cart.level}` : '未制作';
-    document.getElementById('headlight-status').textContent = gameData.tools.headlight.crafted ? `lv${gameData.tools.headlight.level}` : '未制作';
+    
+    // 确保工具对象存在
+    if (!gameData.tools.cart) gameData.tools.cart = { crafted: false, active: true };
+    if (!gameData.tools.headlight) gameData.tools.headlight = { crafted: false, active: true };
+    
+    const cartText = gameData.tools.cart.crafted 
+        ? `lv${gameData.tools.cart.level} (${gameData.tools.cart.exp || 0}/${gameData.tools.cart.nextExp || 50}) ${gameData.tools.cart.active ? '(使用中)' : '(已暂停)'}` 
+        : '未制作';
+    document.getElementById('cart-status').textContent = cartText;
+    
+    const headlightText = gameData.tools.headlight.crafted 
+        ? `lv${gameData.tools.headlight.level} (${gameData.tools.headlight.exp || 0}/${gameData.tools.headlight.nextExp || 50}) ${gameData.tools.headlight.active ? '(使用中)' : '(已暂停)'}` 
+        : '未制作';
+    document.getElementById('headlight-status').textContent = headlightText;
+    
     document.getElementById('furnace-level').textContent = gameData.furnace.level;
+    
+    // 更新工具详细说明
+    updateToolDescriptions(toolDescriptions);
+}
+
+function updateToolDescriptions(descriptions) {
+    const toolsInfo = document.querySelector('.tools-info');
+    let descriptionHTML = '<h3>工具效果说明</h3>';
+    
+    for (const [key, info] of Object.entries(descriptions)) {
+        descriptionHTML += `
+            <div class="tool-description">
+                <strong>${info.name}</strong>: ${info.description}<br>
+                <span style="font-size: 0.8em; color: #666;">${info.current}</span><br>
+                <span style="font-size: 0.8em; color: #888;">${info.next}</span>
+            </div>
+        `;
+    }
+    
+    // 移除旧的说明，添加新的说明
+    const existingDescription = toolsInfo.querySelector('.tool-description-container');
+    if (existingDescription) {
+        existingDescription.remove();
+    }
+    
+    const descriptionContainer = document.createElement('div');
+    descriptionContainer.className = 'tool-description-container';
+    descriptionContainer.style.marginTop = '10px';
+    descriptionContainer.style.padding = '10px';
+    descriptionContainer.style.backgroundColor = '#f9f9f9';
+    descriptionContainer.style.borderRadius = '5px';
+    descriptionContainer.style.border = '1px solid #ddd';
+    descriptionContainer.innerHTML = descriptionHTML;
+    
+    toolsInfo.appendChild(descriptionContainer);
 }
 
 function craftBackpackExpansion(type) {
@@ -1028,16 +1500,32 @@ function updateMessages() {
 
 function generateMiningMessage(mineral, drops) {
     let message = '恭喜获得：';
-    message += `${mineral.name}*1, `;
+    
+    // 计算矿物数量，考虑矿车加成
+    let baseAmount = 1;
+    let cartBonus = 0;
+    if (gameData.tools.cart && gameData.tools.cart.crafted && gameData.tools.cart.active) {
+        // 矿车每5级提升1个采矿数量
+        cartBonus = Math.floor(gameData.tools.cart.level / 5);
+    }
+    const totalAmount = baseAmount + cartBonus;
+    
+    // 显示矿物数量，包括加成说明
+    if (cartBonus > 0) {
+        message += `${mineral.name}*${totalAmount}（基础*${baseAmount}+矿车*${cartBonus}）, `;
+    } else {
+        message += `${mineral.name}*${baseAmount}, `;
+    }
+    
     drops.forEach(drop => {
         message += `${drop}*1, `;
     });
     message += `人物经验*${mineral.exp}, `;
     message += `采矿锄经验*${mineral.exp}, `;
-    if (gameData.tools.cart.crafted) {
+    if (gameData.tools.cart && gameData.tools.cart.crafted) {
         message += `矿车经验*${mineral.exp}, `;
     }
-    if (gameData.tools.headlight.crafted) {
+    if (gameData.tools.headlight && gameData.tools.headlight.crafted) {
         message += `头灯经验*${mineral.exp}, `;
     }
     message = message.slice(0, -2);
@@ -1063,11 +1551,32 @@ function addEventListeners() {
     document.getElementById('confirm-disassemble').addEventListener('click', disassembleItem);
     document.getElementById('craft-cart').addEventListener('click', craftCart);
     document.getElementById('craft-headlight').addEventListener('click', craftHeadlight);
+    
+    // 矿车和头灯控制按钮
+    document.getElementById('toggle-cart').addEventListener('click', () => {
+        if (gameData.tools.cart && gameData.tools.cart.crafted) {
+            gameData.tools.cart.active = !gameData.tools.cart.active;
+            addMessage(gameData.tools.cart.active ? '矿车已恢复使用！' : '矿车已暂停使用！');
+            updateUI();
+        } else {
+            alert('矿车尚未制作！');
+        }
+    });
+    
+    document.getElementById('toggle-headlight').addEventListener('click', () => {
+        if (gameData.tools.headlight && gameData.tools.headlight.crafted) {
+            gameData.tools.headlight.active = !gameData.tools.headlight.active;
+            addMessage(gameData.tools.headlight.active ? '头灯已恢复使用！' : '头灯已暂停使用！');
+            updateUI();
+        } else {
+            alert('头灯尚未制作！');
+        }
+    });
     document.getElementById('craft-furnace').addEventListener('click', craftFurnace);
     document.getElementById('craft-backpack').addEventListener('click', openBackpackCraftPanel);
     document.getElementById('smelt-stone').addEventListener('click', smeltStone);
     document.getElementById('make-alloy').addEventListener('click', () => {
-        const requiredLevel = 15;
+        const requiredLevel = 10;
         if (gameData.player.level < requiredLevel) {
             alert(`等级不足！需要${requiredLevel}级才能制作合金`);
         } else {
@@ -1089,6 +1598,11 @@ function addEventListeners() {
     });
     document.getElementById('export-btn').addEventListener('click', exportGameData);
     document.getElementById('import-btn').addEventListener('click', importGameData);
+    
+    // 工具升级按钮
+    document.getElementById('upgrade-pickaxe').addEventListener('click', () => upgradeTool('pickaxe'));
+    document.getElementById('upgrade-cart').addEventListener('click', () => upgradeTool('cart'));
+    document.getElementById('upgrade-headlight').addEventListener('click', () => upgradeTool('headlight'));
 }
 
 function showSaveMessage(message) {
@@ -1123,12 +1637,60 @@ function sellItem() {
     }
     let price = 0;
     const baseItemName = itemName.split('_')[0];
-    const mineral = minerals.find(m => m.name === baseItemName);
-    if (mineral) {
-        price = mineral.price;
+    
+    // 检查是否是配方物品
+    if (baseItemName.includes('配方')) {
+        // 提取合金名称
+        const alloyName = baseItemName.replace('配方', '');
+        // 根据合金类型设置配方价格（合金价格的100倍）
+        switch (alloyName) {
+            case '铜铁合金':
+                price = 1000; // 假设铜铁合金价格为10，配方价格为10*100
+                break;
+            case '铜钴合金':
+                price = 5000; // 假设铜钴合金价格为50，配方价格为50*100
+                break;
+            case '铜镍合金':
+                price = 8000; // 假设铜镍合金价格为80，配方价格为80*100
+                break;
+            case '铜银合金':
+                price = 10000; // 假设铜银合金价格为100，配方价格为100*100
+                break;
+            default:
+                price = 500;
+        }
     } else {
-        price = 1;
+        // 检查是否是矿物
+        const mineral = minerals.find(m => m.name === baseItemName);
+        if (mineral) {
+            price = mineral.price;
+        } else {
+            // 检查是否是合金
+            if (alloyRecipes[baseItemName]) {
+                // 为合金设置价格
+                switch (baseItemName) {
+                    case '铜铁合金':
+                        price = 10;
+                        break;
+                    case '铜钴合金':
+                        price = 50;
+                        break;
+                    case '铜镍合金':
+                        price = 80;
+                        break;
+                    case '铜银合金':
+                        price = 100;
+                        break;
+                    default:
+                        price = 20;
+                }
+            } else {
+                // 其他物品默认价格
+                price = 1;
+            }
+        }
     }
+    
     if (gameData.backpack.items[itemName] < amount) {
         alert('物品数量不足！');
         return;
@@ -1197,15 +1759,19 @@ function craftHeadlight() {
         alert('头灯已制作！');
         return;
     }
-    if (gameData.player.gold < 100) {
-        alert('金币不足！需要100金币');
+    if (gameData.player.gold < 1000) {
+        alert('金币不足！需要1000金币');
         return;
     }
-    if (!consumeItem('铁矿', 50)) {
-        alert('材料不足！需要铁矿50');
+    if (!consumeItem('铁矿', 100)) {
+        alert('材料不足！需要铁矿100');
         return;
     }
-    gameData.player.gold -= 100;
+    if (!consumeItem('铜矿', 10)) {
+        alert('材料不足！需要铜矿10');
+        return;
+    }
+    gameData.player.gold -= 1000;
     gameData.tools.headlight.crafted = true;
     addMessage('头灯制作成功！');
     updateUI();
@@ -1436,45 +2002,98 @@ const alloyRecipes = {
     }
 };
 
+// 检查玩家是否拥有指定合金的配方
+function hasAlloyRecipe(alloyName) {
+    // 检查是否已解锁该配方
+    if (gameData.unlockedRecipes[alloyName]) {
+        return true;
+    }
+    
+    // 检查背包中是否有对应的配方物品
+    for (const itemName of Object.keys(gameData.backpack.items)) {
+        const baseItemName = itemName.split('_')[0];
+        if (baseItemName === `${alloyName}配方`) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// 解锁配方（使用配方物品）
+function unlockAlloyRecipe(alloyName) {
+    // 找到并消耗一个配方物品
+    for (const itemName of Object.keys(gameData.backpack.items)) {
+        const baseItemName = itemName.split('_')[0];
+        if (baseItemName === `${alloyName}配方`) {
+            gameData.backpack.items[itemName]--;
+            if (gameData.backpack.items[itemName] <= 0) {
+                delete gameData.backpack.items[itemName];
+            }
+            // 解锁配方
+            gameData.unlockedRecipes[alloyName] = true;
+            addMessage(`成功解锁${alloyName}配方！现在可以无限制作该合金了！`);
+            return true;
+        }
+    }
+    return false;
+}
+
 function openAlloyCraftPanel() {
     let panelHTML = '<h3>制作合金</h3><div class="alloy-craft-list">';
+    
+    // 检查是否有任何配方
+    let hasRecipes = false;
+    
     for (const [alloy, data] of Object.entries(alloyRecipes)) {
-        let materialsText = '';
-        for (const [material, amount] of Object.entries(data.materials)) {
-            materialsText += `${material}×${amount} `;
+        // 只显示玩家已获得配方的合金
+        if (hasAlloyRecipe(alloy)) {
+            hasRecipes = true;
+            let materialsText = '';
+            for (const [material, amount] of Object.entries(data.materials)) {
+                materialsText += `${material}×${amount} `;
+            }
+            let sourceText = '';
+            let levelText = '';
+            const requiredLevel = getRequiredLevelForAlloy(alloy);
+            switch (alloy) {
+                case '铜铁合金':
+                    sourceText = '配方出处：挖铁矿随机获得';
+                    levelText = `需要等级：${requiredLevel}`;
+                    break;
+                case '铜钴合金':
+                    sourceText = '配方出处：挖钴矿随机获得';
+                    levelText = `需要等级：${requiredLevel}`;
+                    break;
+                case '铜镍合金':
+                    sourceText = '配方出处：挖镍矿随机获得';
+                    levelText = `需要等级：${requiredLevel}`;
+                    break;
+                case '铜银合金':
+                    sourceText = '配方出处：挖银矿随机获得';
+                    levelText = `需要等级：${requiredLevel}`;
+                    break;
+            }
+            panelHTML += `
+                <div class="alloy-craft-item">
+                    <h4>${alloy}</h4>
+                    <p>${data.description}</p>
+                    <p>材料：${materialsText}</p>
+                    <p class="level-info">${levelText}</p>
+                    <p class="source-info">${sourceText}</p>
+                    <button onclick="craftAlloy('${alloy}')">制作</button>
+                </div>
+            `;
         }
-        let sourceText = '';
-        let levelText = '';
-        const requiredLevel = getRequiredLevelForAlloy(alloy);
-        switch (alloy) {
-            case '铜铁合金':
-                sourceText = '配方出处：熔炉升级需要';
-                levelText = `需要等级：${requiredLevel}`;
-                break;
-            case '铜钴合金':
-                sourceText = '配方出处：高级熔炉升级需要';
-                levelText = `需要等级：${requiredLevel}`;
-                break;
-            case '铜镍合金':
-                sourceText = '配方出处：顶级熔炉升级需要';
-                levelText = `需要等级：${requiredLevel}`;
-                break;
-            case '铜银合金':
-                sourceText = '配方出处：终极熔炉升级需要';
-                levelText = `需要等级：${requiredLevel}`;
-                break;
-        }
-        panelHTML += `
-            <div class="alloy-craft-item">
-                <h4>${alloy}</h4>
-                <p>${data.description}</p>
-                <p>材料：${materialsText}</p>
-                <p class="level-info">${levelText}</p>
-                <p class="source-info">${sourceText}</p>
-                <button onclick="craftAlloy('${alloy}')">制作</button>
-            </div>
-        `;
     }
+    
+    // 如果没有配方，显示提示信息
+    if (!hasRecipes) {
+        panelHTML += '<div class="no-recipes">' +
+            '<p>你还没有获得任何合金配方！</p>' +
+            '<p>挖铁矿有几率获得铜铁合金配方，挖钴矿有几率获得铜钴合金配方，以此类推。</p>' +
+            '</div>';
+    }
+    
     panelHTML += '</div>';
     let panel = document.getElementById('alloy-craft-panel');
     if (!panel) {
@@ -1491,6 +2110,12 @@ function craftAlloy(alloyName) {
     const recipe = alloyRecipes[alloyName];
     if (!recipe) return;
     
+    // 检查是否获得了配方
+    if (!hasAlloyRecipe(alloyName)) {
+        alert('你还没有获得这个合金的配方！');
+        return;
+    }
+    
     const requiredLevel = getRequiredLevelForAlloy(alloyName);
     if (gameData.player.level < requiredLevel) {
         alert(`等级不足！需要${requiredLevel}级才能制作${alloyName}`);
@@ -1504,10 +2129,17 @@ function craftAlloy(alloyName) {
         }
     }
     
+    // 消耗材料
     for (const [material, amount] of Object.entries(recipe.materials)) {
         consumeItem(material, amount);
     }
     
+    // 如果配方尚未解锁，使用配方物品进行解锁
+    if (!gameData.unlockedRecipes[alloyName]) {
+        unlockAlloyRecipe(alloyName);
+    }
+    
+    // 添加合金到背包
     addToBackpack(alloyName);
     addMessage(`合金制作成功！获得${alloyName}*1！`);
     updateUI();
@@ -1516,13 +2148,15 @@ function craftAlloy(alloyName) {
 }
 
 function getRequiredLevelForAlloy(alloyName) {
+    // 合金制作的等级限制降低至10级，与头灯的解锁等级一致
+    // 同时与所需最低等级矿物的解锁等级保持一致
     const levelRequirements = {
-        '铜铁合金': 15,
-        '铜钴合金': 20,
-        '铜镍合金': 25,
-        '铜银合金': 30
+        '铜铁合金': 10,  // 铁的解锁等级是10级
+        '铜钴合金': 15,  // 铜的解锁等级是15级
+        '铜镍合金': 15,  // 铜的解锁等级是15级
+        '铜银合金': 15   // 铜的解锁等级是15级
     };
-    return levelRequirements[alloyName] || 15;
+    return levelRequirements[alloyName] || 10;
 }
 
 function saveGame() {
@@ -1601,6 +2235,9 @@ function ensureGameDataIntegrity() {
     if (!gameData.miningCount) {
         gameData.miningCount = {};
     }
+    if (!gameData.unlockedRecipes) {
+        gameData.unlockedRecipes = {};
+    }
     if (!gameData.backpack.baseCapacity) {
         gameData.backpack.baseCapacity = 10;
     }
@@ -1665,6 +2302,7 @@ function initDefaultGameData() {
             baseStackSize: 20,
             currentStackSize: 20
         },
+        unlockedRecipes: {},
         miningCount: {},
         selectedMineral: null
     };
