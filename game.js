@@ -498,6 +498,29 @@ function useExpansion(expansionName, slotIndex) {
 function removeExpansion(slotIndex) {
     const expansion = gameData.backpack.expansionSlots[slotIndex];
     if (expansion) {
+        const currentItemsCount = Object.keys(gameData.backpack.items).length;
+        const currentExpansionSlots = [...gameData.backpack.expansionSlots];
+        currentExpansionSlots[slotIndex] = null;
+        
+        let tempCapacity = gameData.backpack.baseCapacity;
+        let tempStackSize = gameData.backpack.baseStackSize;
+        currentExpansionSlots.forEach(exp => {
+            if (exp && backpackExpansions[exp]) {
+                const expData = backpackExpansions[exp];
+                if (expData.effect.capacity) {
+                    tempCapacity += expData.effect.capacity;
+                }
+                if (expData.effect.stackSize) {
+                    tempStackSize += expData.effect.stackSize;
+                }
+            }
+        });
+        
+        if (currentItemsCount > tempCapacity) {
+            alert('背包空间不足！移除扩充背包会导致物品溢出！');
+            return;
+        }
+        
         addToBackpack(expansion);
         gameData.backpack.expansionSlots[slotIndex] = null;
         calculateBackpackStats();
@@ -1044,7 +1067,12 @@ function addEventListeners() {
     document.getElementById('craft-backpack').addEventListener('click', openBackpackCraftPanel);
     document.getElementById('smelt-stone').addEventListener('click', smeltStone);
     document.getElementById('make-alloy').addEventListener('click', () => {
-        addMessage('合金功能尚未实现！');
+        const requiredLevel = 15;
+        if (gameData.player.level < requiredLevel) {
+            alert(`等级不足！需要${requiredLevel}级才能制作合金`);
+        } else {
+            openAlloyCraftPanel();
+        }
     });
     document.getElementById('save-btn').addEventListener('click', () => {
         saveGame();
@@ -1202,23 +1230,101 @@ function craftFurnace() {
     updateMessages();
 }
 
+function upgradeFurnace() {
+    if (!gameData.furnace.crafted) {
+        alert('请先制作熔炉！');
+        return;
+    }
+    const nextLevel = gameData.furnace.level + 1;
+    const materials = getFurnaceUpgradeMaterials(nextLevel);
+    if (!hasEnoughMaterials(materials)) {
+        let materialsText = '';
+        for (const [material, amount] of Object.entries(materials)) {
+            materialsText += `${material}×${amount} `;
+        }
+        alert(`材料不足！需要：${materialsText}`);
+        return;
+    }
+    for (const [material, amount] of Object.entries(materials)) {
+        consumeItem(material, amount);
+    }
+    gameData.furnace.level = nextLevel;
+    addMessage(`熔炉升级成功！现在是${nextLevel}级！`);
+    updateUI();
+    updateBackpackDisplay();
+    updateFurnaceUI();
+    updateMessages();
+    saveGame();
+}
+
+function getFurnaceUpgradeMaterials(level) {
+    const materials = {
+        1: { '石矿': 5, '石灰': 5 },
+        2: { '石灰': 10, '铜铁合金': 3 },
+        3: { '石灰': 20, '铜钴合金': 5 },
+        4: { '铜钴合金': 10, '铜镍合金': 5 },
+        5: { '铜镍合金': 10, '铜银合金': 5 }
+    };
+    return materials[level] || {};
+}
+
+function hasEnoughMaterials(materials) {
+    for (const [material, amount] of Object.entries(materials)) {
+        if (!hasEnoughItem(material, amount)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 function updateFurnaceUI() {
     const smeltBtn = document.getElementById('smelt-stone');
     const alloyBtn = document.getElementById('make-alloy');
     const furnaceLevel = document.getElementById('furnace-level');
     const craftFurnaceBtn = document.getElementById('craft-furnace');
+    const upgradeFurnaceBtn = document.getElementById('upgrade-furnace');
+    if (!upgradeFurnaceBtn) {
+        const furnaceContainer = document.querySelector('.furnace');
+        const furnaceControls = furnaceContainer.querySelector('.furnace-controls');
+        const upgradeContainer = document.createElement('div');
+        upgradeContainer.className = 'furnace-upgrade';
+        upgradeContainer.innerHTML = '<button id="upgrade-furnace">升级熔炉</button>';
+        furnaceContainer.appendChild(upgradeContainer);
+        document.getElementById('upgrade-furnace').addEventListener('click', upgradeFurnace);
+    }
     if (gameData.furnace.crafted) {
         smeltBtn.disabled = false;
-        alloyBtn.disabled = gameData.player.level < 15;
+        alloyBtn.disabled = false; // 移除禁用状态，在点击事件中检查等级
         furnaceLevel.textContent = gameData.furnace.level;
         craftFurnaceBtn.textContent = '熔炉已制作';
         craftFurnaceBtn.disabled = true;
+        const upgradeBtn = document.getElementById('upgrade-furnace');
+        if (upgradeBtn) {
+            const nextLevel = gameData.furnace.level + 1;
+            const materials = getFurnaceUpgradeMaterials(nextLevel);
+            if (Object.keys(materials).length > 0) {
+                let materialsText = '';
+                for (const [material, amount] of Object.entries(materials)) {
+                    materialsText += `${material}×${amount} `;
+                }
+                upgradeBtn.textContent = `升级熔炉到${nextLevel}级 (需要: ${materialsText})`;
+                upgradeBtn.disabled = false;
+            } else {
+                upgradeBtn.textContent = '熔炉已达到最高等级';
+                upgradeBtn.disabled = true;
+            }
+        }
     } else {
         smeltBtn.disabled = true;
         alloyBtn.disabled = true;
         furnaceLevel.textContent = '未制作';
         craftFurnaceBtn.textContent = '制作熔炉 (石矿20)';
         craftFurnaceBtn.disabled = false;
+        const upgradeBtn = document.getElementById('upgrade-furnace');
+        if (upgradeBtn) {
+            upgradeBtn.textContent = '需要先制作熔炉';
+            upgradeBtn.disabled = true;
+        }
     }
 }
 
@@ -1227,14 +1333,35 @@ function smeltStone() {
         alert('请先制作熔炉！');
         return;
     }
-    if (!consumeItem('石矿', 10)) {
-        alert('材料不足！需要石矿10');
+    const furnaceLevel = gameData.furnace.level;
+    let stoneCost = 10;
+    let coalCost = 1;
+    let limeOutput = 1;
+    
+    if (furnaceLevel >= 2) {
+        coalCost *= 0.9;
+    }
+    if (furnaceLevel >= 3) {
+        coalCost *= 0.95;
+    }
+    if (furnaceLevel >= 4) {
+        coalCost *= 0.9;
+    }
+    if (furnaceLevel >= 5) {
+        coalCost *= 0.8;
+    }
+    
+    coalCost = Math.max(1, Math.floor(coalCost));
+    
+    if (!consumeItem('石矿', stoneCost)) {
+        alert(`材料不足！需要石矿${stoneCost}`);
         return;
     }
-    if (!consumeItem('煤矿', 1)) {
-        alert('材料不足！需要煤矿1');
+    if (!consumeItem('煤矿', coalCost)) {
+        alert(`材料不足！需要煤矿${coalCost}`);
         return;
     }
+    
     const itemEntries = Object.entries(gameData.backpack.items);
     let hasSpace = false;
     for (const [name, count] of itemEntries) {
@@ -1248,17 +1375,154 @@ function smeltStone() {
         hasSpace = true;
     }
     if (!hasSpace) {
-        for (let i = 0; i < 10; i++) {
+        for (let i = 0; i < stoneCost; i++) {
             addToBackpack('石矿');
         }
-        addToBackpack('煤矿');
+        for (let i = 0; i < coalCost; i++) {
+            addToBackpack('煤矿');
+        }
         alert('背包已满，无法融石！');
         return;
     }
-    addToBackpack('石灰');
-    addMessage('融石成功！获得石灰*1！');
+    
+    for (let i = 0; i < limeOutput; i++) {
+        addToBackpack('石灰');
+    }
+    
+    let message = `融石成功！获得石灰*${limeOutput}！`;
+    if (furnaceLevel >= 2) {
+        message += ` (燃料消耗减少${getFuelReduction(furnaceLevel)}%)`;
+    }
+    if (furnaceLevel >= 3) {
+        message += ` (燃烧时间延长${getBurnTimeIncrease(furnaceLevel)}%)`;
+    }
+    
+    addMessage(message);
     updateBackpackDisplay();
     updateMessages();
+}
+
+function getFuelReduction(level) {
+    if (level === 2) return 10;
+    if (level === 3) return 15;
+    if (level === 4) return 25;
+    if (level === 5) return 45;
+    return 0;
+}
+
+function getBurnTimeIncrease(level) {
+    if (level === 3) return 30;
+    if (level === 4) return 50;
+    if (level === 5) return 100;
+    return 0;
+}
+
+const alloyRecipes = {
+    '铜铁合金': {
+        materials: { '铜矿': 2, '铁矿': 3 },
+        description: '用于熔炉升级和高级工具制作'
+    },
+    '铜钴合金': {
+        materials: { '铜矿': 3, '钴矿': 2 },
+        description: '用于高级熔炉升级'
+    },
+    '铜镍合金': {
+        materials: { '铜矿': 3, '镍矿': 2 },
+        description: '用于顶级熔炉升级'
+    },
+    '铜银合金': {
+        materials: { '铜矿': 4, '银矿': 1 },
+        description: '用于终极熔炉升级'
+    }
+};
+
+function openAlloyCraftPanel() {
+    let panelHTML = '<h3>制作合金</h3><div class="alloy-craft-list">';
+    for (const [alloy, data] of Object.entries(alloyRecipes)) {
+        let materialsText = '';
+        for (const [material, amount] of Object.entries(data.materials)) {
+            materialsText += `${material}×${amount} `;
+        }
+        let sourceText = '';
+        let levelText = '';
+        const requiredLevel = getRequiredLevelForAlloy(alloy);
+        switch (alloy) {
+            case '铜铁合金':
+                sourceText = '配方出处：熔炉升级需要';
+                levelText = `需要等级：${requiredLevel}`;
+                break;
+            case '铜钴合金':
+                sourceText = '配方出处：高级熔炉升级需要';
+                levelText = `需要等级：${requiredLevel}`;
+                break;
+            case '铜镍合金':
+                sourceText = '配方出处：顶级熔炉升级需要';
+                levelText = `需要等级：${requiredLevel}`;
+                break;
+            case '铜银合金':
+                sourceText = '配方出处：终极熔炉升级需要';
+                levelText = `需要等级：${requiredLevel}`;
+                break;
+        }
+        panelHTML += `
+            <div class="alloy-craft-item">
+                <h4>${alloy}</h4>
+                <p>${data.description}</p>
+                <p>材料：${materialsText}</p>
+                <p class="level-info">${levelText}</p>
+                <p class="source-info">${sourceText}</p>
+                <button onclick="craftAlloy('${alloy}')">制作</button>
+            </div>
+        `;
+    }
+    panelHTML += '</div>';
+    let panel = document.getElementById('alloy-craft-panel');
+    if (!panel) {
+        panel = document.createElement('div');
+        panel.id = 'alloy-craft-panel';
+        panel.className = 'alloy-craft-panel';
+        document.querySelector('.furnace').appendChild(panel);
+    }
+    panel.innerHTML = panelHTML;
+    panel.style.display = 'block';
+}
+
+function craftAlloy(alloyName) {
+    const recipe = alloyRecipes[alloyName];
+    if (!recipe) return;
+    
+    const requiredLevel = getRequiredLevelForAlloy(alloyName);
+    if (gameData.player.level < requiredLevel) {
+        alert(`等级不足！需要${requiredLevel}级才能制作${alloyName}`);
+        return;
+    }
+    
+    for (const [material, amount] of Object.entries(recipe.materials)) {
+        if (!hasEnoughItem(material, amount)) {
+            alert(`材料不足！需要${amount}个${material}`);
+            return;
+        }
+    }
+    
+    for (const [material, amount] of Object.entries(recipe.materials)) {
+        consumeItem(material, amount);
+    }
+    
+    addToBackpack(alloyName);
+    addMessage(`合金制作成功！获得${alloyName}*1！`);
+    updateUI();
+    updateBackpackDisplay();
+    openAlloyCraftPanel();
+}
+
+function getRequiredLevelForAlloy(alloyName) {
+    const levelRequirements = {
+        '铜铁合金': 15,
+        '铜钴合金': 20,
+        '铜镍合金': 25,
+        '铜银合金': 30
+    };
+    return levelRequirements[alloyName] || 15;
 }
 
 function saveGame() {
