@@ -1278,6 +1278,10 @@ function loadGame() {
     } else {
         initDefaultGameData();
     }
+    calculateBackpackStats();
+    generateBackpack();
+    generateExpansionSlots();
+    updateBackpackDisplay();
 }
 
 function ensureGameDataIntegrity() {
