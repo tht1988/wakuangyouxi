@@ -31,9 +31,9 @@
         <!-- 工具信息 -->
         <div class="tools-info">
             <h2>工具信息</h2>
-            <div class="info-item">采矿锄: <span id="pickaxe-level">lv0</span> (<span id="pickaxe-exp">0</span>/<span id="pickaxe-next-exp">50</span>)</div>
-            <div class="info-item">矿车: <span id="cart-status">未制作</span></div>
-            <div class="info-item">头灯: <span id="headlight-status">未制作</span></div>
+            <div class="info-item">采矿锄: <span id="pickaxe-level">lv0</span> (<span id="pickaxe-exp">0</span>/<span id="pickaxe-next-exp">50</span>) <button id="upgrade-pickaxe" style="margin-left: 10px; padding: 2px 8px; font-size: 0.8em;">升级工具</button></div>
+            <div class="info-item">矿车: <span id="cart-status">未制作</span> <button id="toggle-cart" style="margin-left: 10px; padding: 2px 8px; font-size: 0.8em;">暂停使用</button> <button id="upgrade-cart" style="margin-left: 10px; padding: 2px 8px; font-size: 0.8em;">升级工具</button></div>
+            <div class="info-item">头灯: <span id="headlight-status">未制作</span> <button id="toggle-headlight" style="margin-left: 10px; padding: 2px 8px; font-size: 0.8em;">暂停使用</button> <button id="upgrade-headlight" style="margin-left: 10px; padding: 2px 8px; font-size: 0.8em;">升级工具</button></div>
         </div>
 
         <!-- 矿物列表 -->
@@ -112,7 +112,7 @@
             <h2>制作系统</h2>
             <div class="crafting-items">
                 <button id="craft-cart">制作矿车 (铁矿20, 50金币)</button>
-                <button id="craft-headlight">制作头灯 (铁矿50, 100金币)</button>
+                <button id="craft-headlight">制作头灯 (铁矿100, 铜矿10, 1000金币)</button>
                 <button id="craft-backpack">制作扩充背包</button>
                 <button id="craft-furnace">制作熔炉 (石矿20)</button>
             </div>
