@@ -393,7 +393,7 @@ h3 {
     gap: 10px;
 }
 
-.furnace-controls button, .crafting-items button {
+.furnace-controls button, .crafting-items button, .furnace-upgrade button {
     background-color: #4CAF50;
     color: white;
     border: none;
@@ -404,13 +404,32 @@ h3 {
     transition: background-color 0.2s ease;
 }
 
-.furnace-controls button:hover, .crafting-items button:hover {
+.furnace-controls button:hover, .crafting-items button:hover, .furnace-upgrade button:hover {
     background-color: #45a049;
 }
 
-.furnace-controls button:disabled, .crafting-items button:disabled {
+.furnace-controls button:disabled, .crafting-items button:disabled, .furnace-upgrade button:disabled {
     background-color: #cccccc;
     cursor: not-allowed;
+}
+
+/* 熔炉升级按钮样式 */
+.furnace-upgrade {
+    margin-top: 15px;
+    padding: 15px;
+    background-color: #f9f9f9;
+    border-radius: 5px;
+    border: 1px solid #ddd;
+}
+
+.furnace-upgrade button {
+    width: 100%;
+    text-align: left;
+    white-space: normal;
+    min-height: 60px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
 }
 
 /* 背包扩充制作面板样式 */
