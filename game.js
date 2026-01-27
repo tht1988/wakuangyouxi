@@ -1667,19 +1667,23 @@ function sellItem() {
         } else {
             // 检查是否是合金
             if (alloyRecipes[baseItemName]) {
-                // 为合金设置价格
+                // 为合金设置价格：两个材料的价格总和再加上50%
                 switch (baseItemName) {
                     case '铜铁合金':
-                        price = 10;
+                        // 铜矿(11) + 铁矿(7) = 18 * 1.5 = 27
+                        price = 27;
                         break;
                     case '铜钴合金':
-                        price = 50;
+                        // 铜矿(11) + 钴矿(15) = 26 * 1.5 = 39
+                        price = 39;
                         break;
                     case '铜镍合金':
-                        price = 80;
+                        // 铜矿(11) + 镍矿(18) = 29 * 1.5 = 43.5 → 44
+                        price = 44;
                         break;
                     case '铜银合金':
-                        price = 100;
+                        // 铜矿(11) + 银矿(21) = 32 * 1.5 = 48
+                        price = 48;
                         break;
                     default:
                         price = 20;
@@ -1985,19 +1989,19 @@ function getBurnTimeIncrease(level) {
 
 const alloyRecipes = {
     '铜铁合金': {
-        materials: { '铜矿': 2, '铁矿': 3 },
+        materials: { '铜矿': 2, '铁矿': 2 },
         description: '用于熔炉升级和高级工具制作'
     },
     '铜钴合金': {
-        materials: { '铜矿': 3, '钴矿': 2 },
+        materials: { '铜矿': 2, '钴矿': 2 },
         description: '用于高级熔炉升级'
     },
     '铜镍合金': {
-        materials: { '铜矿': 3, '镍矿': 2 },
+        materials: { '铜矿': 2, '镍矿': 2 },
         description: '用于顶级熔炉升级'
     },
     '铜银合金': {
-        materials: { '铜矿': 4, '银矿': 1 },
+        materials: { '铜矿': 2, '银矿': 2 },
         description: '用于终极熔炉升级'
     }
 };
@@ -2139,9 +2143,32 @@ function craftAlloy(alloyName) {
         unlockAlloyRecipe(alloyName);
     }
     
+    // 计算合金经验值：两个材料的经验总和再加上150%
+    let totalExp = 0;
+    for (const [material, amount] of Object.entries(recipe.materials)) {
+        const mineral = minerals.find(m => m.name === material);
+        if (mineral) {
+            totalExp += mineral.exp * amount;
+        }
+    }
+    // 加上150%的加成
+    const alloyExp = Math.floor(totalExp * 2.5); // 100% + 150% = 250%
+    
+    // 给玩家和工具添加经验
+    gameData.player.exp += alloyExp;
+    gameData.tools.pickaxe.exp += alloyExp;
+    if (gameData.tools.cart.crafted) {
+        gameData.tools.cart.exp += alloyExp;
+    }
+    if (gameData.tools.headlight.crafted) {
+        gameData.tools.headlight.exp += alloyExp;
+    }
+    addGainedExp(alloyExp);
+    checkLevelUp();
+    
     // 添加合金到背包
     addToBackpack(alloyName);
-    addMessage(`合金制作成功！获得${alloyName}*1！`);
+    addMessage(`合金制作成功！获得${alloyName}*1，经验*${alloyExp}！`);
     updateUI();
     updateBackpackDisplay();
     openAlloyCraftPanel();
