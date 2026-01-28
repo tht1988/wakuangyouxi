@@ -44,6 +44,9 @@ let gameData = {
         baseStackSize: 20,
         currentStackSize: 20
     },
+    tempBackpack: {
+        items: {} // 临时背包，用于存放溢出物品
+    },
     unlockedRecipes: {}, // 存储已解锁的配方
     miningCount: {},
     selectedMineral: null
@@ -301,6 +304,7 @@ function initGame() {
     updateFurnaceUI();
     updateGainedInfo();
     updateMessages();
+    updateTempBackpackDisplay();
     addEventListeners();
 }
 
@@ -419,6 +423,7 @@ function generateExpansionSlots() {
 
 function showExpansionSelection(slotIndex) {
     const expansionsInBackpack = [];
+    // 检查主背包中的扩充背包
     for (const [itemName, count] of Object.entries(gameData.backpack.items)) {
         const baseName = itemName.split('_')[0];
         if (baseName in backpackExpansions) {
@@ -427,6 +432,20 @@ function showExpansionSelection(slotIndex) {
             }
         }
     }
+    // 检查临时背包中的扩充背包
+    for (const [itemName, count] of Object.entries(gameData.tempBackpack.items)) {
+        const baseName = itemName.split('_')[0];
+        if (baseName in backpackExpansions) {
+            if (!expansionsInBackpack.includes(baseName)) {
+                expansionsInBackpack.push(baseName);
+            }
+        }
+    }
+    // 调试信息
+    console.log('主背包物品:', gameData.backpack.items);
+    console.log('临时背包物品:', gameData.tempBackpack.items);
+    console.log('检测到的扩充背包:', expansionsInBackpack);
+    console.log('可用的扩充背包类型:', Object.keys(backpackExpansions));
     if (expansionsInBackpack.length === 0) {
         alert('背包中没有可使用的背包扩充！');
         return;
@@ -463,27 +482,61 @@ function showExpansionSelection(slotIndex) {
 }
 
 function useExpansion(expansionName, slotIndex) {
-    const itemEntries = Object.entries(gameData.backpack.items);
     let hasExpansion = false;
     let itemToRemove = null;
-    for (const [itemName, count] of itemEntries) {
+    let isFromTemp = false;
+    
+    // 检查主背包中的扩充背包
+    const backpackEntries = Object.entries(gameData.backpack.items);
+    for (const [itemName, count] of backpackEntries) {
         const baseName = itemName.split('_')[0];
         if (baseName === expansionName) {
             hasExpansion = true;
             itemToRemove = itemName;
+            isFromTemp = false;
             break;
         }
     }
+    
+    // 如果主背包中没有，检查临时背包中的扩充背包
+    if (!hasExpansion) {
+        const tempEntries = Object.entries(gameData.tempBackpack.items);
+        for (const [itemName, count] of tempEntries) {
+            const baseName = itemName.split('_')[0];
+            if (baseName === expansionName) {
+                hasExpansion = true;
+                itemToRemove = itemName;
+                isFromTemp = true;
+                break;
+            }
+        }
+    }
+    
     if (!hasExpansion) {
         alert('背包中没有该背包扩充！');
         return;
     }
+    
     const currentExpansion = gameData.backpack.expansionSlots[slotIndex];
     if (currentExpansion) {
         addToBackpack(currentExpansion);
     }
+    
     gameData.backpack.expansionSlots[slotIndex] = expansionName;
-    consumeItem(expansionName, 1);
+    
+    // 从相应的背包中消耗物品
+    if (isFromTemp) {
+        // 确保itemToRemove存在于临时背包中
+        if (gameData.tempBackpack.items[itemToRemove]) {
+            gameData.tempBackpack.items[itemToRemove]--;
+            if (gameData.tempBackpack.items[itemToRemove] <= 0) {
+                delete gameData.tempBackpack.items[itemToRemove];
+            }
+            updateTempBackpackDisplay();
+        }
+    } else {
+        consumeItem(expansionName, 1);
+    }
     calculateBackpackStats();
     updateBackpackDisplay();
     generateExpansionSlots();
@@ -498,7 +551,7 @@ function useExpansion(expansionName, slotIndex) {
 function removeExpansion(slotIndex) {
     const expansion = gameData.backpack.expansionSlots[slotIndex];
     if (expansion) {
-        const currentItemsCount = Object.keys(gameData.backpack.items).length;
+        const currentItems = { ...gameData.backpack.items };
         const currentExpansionSlots = [...gameData.backpack.expansionSlots];
         currentExpansionSlots[slotIndex] = null;
         
@@ -516,14 +569,57 @@ function removeExpansion(slotIndex) {
             }
         });
         
-        if (currentItemsCount > tempCapacity) {
-            alert('背包空间不足！移除扩充背包会导致物品溢出！');
-            return;
-        }
-        
-        addToBackpack(expansion);
+        // 移除扩充背包
         gameData.backpack.expansionSlots[slotIndex] = null;
         calculateBackpackStats();
+        
+        // 检查并处理溢出物品
+        const itemEntries = Object.entries(currentItems);
+        gameData.backpack.items = {};
+        let overflowCount = 0;
+        
+        for (const [itemName, count] of itemEntries) {
+            const baseName = itemName.split('_')[0];
+            for (let i = 0; i < count; i++) {
+                // 尝试添加到背包
+                let added = false;
+                const backpackItems = { ...gameData.backpack.items };
+                for (const [name, backpackCount] of Object.entries(backpackItems)) {
+                    const backpackBaseName = name.split('_')[0];
+                    if (backpackBaseName === baseName && backpackCount < gameData.backpack.currentStackSize) {
+                        gameData.backpack.items[name]++;
+                        added = true;
+                        break;
+                    }
+                }
+                if (!added) {
+                    const backpackItemCount = Object.keys(gameData.backpack.items).length;
+                    if (backpackItemCount < gameData.backpack.capacity) {
+                        let suffix = 1;
+                        let newItemName = baseName;
+                        while (gameData.backpack.items[newItemName]) {
+                            suffix++;
+                            newItemName = `${baseName}_${suffix}`;
+                        }
+                        gameData.backpack.items[newItemName] = 1;
+                        added = true;
+                    }
+                }
+                if (!added) {
+                    // 背包满了，放入临时背包
+                    addToTempBackpack(baseName, 1);
+                    overflowCount++;
+                }
+            }
+        }
+        
+        // 最后添加扩充背包
+        addToBackpack(expansion);
+        
+        if (overflowCount > 0) {
+            addMessage(`背包空间不足，${overflowCount}个物品已放入临时背包！`);
+        }
+        
         updateBackpackDisplay();
         generateExpansionSlots();
         updateUI();
@@ -567,6 +663,11 @@ function selectMineral(mineralName) {
 
 function mineMineral(mineralName) {
     if (continuousMining) {
+        return;
+    }
+    // 检查临时背包是否有物品
+    if (hasTempItems()) {
+        alert('临时背包中有物品，请先处理临时背包中的物品！');
         return;
     }
     const mineral = minerals.find(m => m.name === mineralName);
@@ -623,6 +724,11 @@ function continuousMine(mineralName) {
     const countdown = mineralEl.querySelector('.countdown');
     if (continuousMining) {
         stopContinuousMining();
+        return;
+    }
+    // 检查临时背包是否有物品
+    if (hasTempItems()) {
+        alert('临时背包中有物品，请先处理临时背包中的物品！');
         return;
     }
     continuousMining = true;
@@ -696,13 +802,35 @@ function completeMining(mineral) {
         gameData.miningCount[mineral.name] = (gameData.miningCount[mineral.name] || 0) + 1;
     }
     gameData.player.exp += mineral.exp;
-    gameData.tools.pickaxe.exp += mineral.exp;
-    if (gameData.tools.cart.crafted) {
-        gameData.tools.cart.exp += mineral.exp;
+    
+    // 只有当工具经验值未满时才添加经验值
+    let pickaxeGainedExp = 0;
+    if (gameData.tools.pickaxe.level < 50) {
+        const pickaxeNextExp = gameData.tools.pickaxe.nextExp || 50;
+        if (gameData.tools.pickaxe.exp < pickaxeNextExp) {
+            gameData.tools.pickaxe.exp += mineral.exp;
+            pickaxeGainedExp = mineral.exp;
+        }
     }
-    if (gameData.tools.headlight.crafted) {
-        gameData.tools.headlight.exp += mineral.exp;
+    
+    let cartGainedExp = 0;
+    if (gameData.tools.cart.crafted && gameData.tools.cart.level < 50) {
+        const cartNextExp = gameData.tools.cart.nextExp || 50;
+        if (gameData.tools.cart.exp < cartNextExp) {
+            gameData.tools.cart.exp += mineral.exp;
+            cartGainedExp = mineral.exp;
+        }
     }
+    
+    let headlightGainedExp = 0;
+    if (gameData.tools.headlight.crafted && gameData.tools.headlight.level < 50) {
+        const headlightNextExp = gameData.tools.headlight.nextExp || 50;
+        if (gameData.tools.headlight.exp < headlightNextExp) {
+            gameData.tools.headlight.exp += mineral.exp;
+            headlightGainedExp = mineral.exp;
+        }
+    }
+    
     addGainedExp(mineral.exp);
     checkLevelUp();
     // 检查工具状态和消耗
@@ -733,6 +861,7 @@ function completeMining(mineral) {
     }
     
     // 头灯效果：增加高一级矿物发现几率
+    let headlightGoldConsumed = false;
     if (gameData.tools.headlight && gameData.tools.headlight.crafted && gameData.tools.headlight.active) {
         // 检查头灯的金币消耗状态
         if (!gameData.tools.headlight.lastGoldConsume) {
@@ -745,6 +874,7 @@ function completeMining(mineral) {
             if (gameData.player.gold >= 1) {
                 gameData.player.gold -= 1;
                 gameData.tools.headlight.lastGoldConsume = now;
+                headlightGoldConsumed = true;
             } else {
                 // 金币不足，自动停用头灯
                 gameData.tools.headlight.active = false;
@@ -816,7 +946,7 @@ function completeMining(mineral) {
             }
         });
     }
-    const miningMessage = generateMiningMessage(mineral, obtainedDrops);
+    const miningMessage = generateMiningMessage(mineral, obtainedDrops, headlightGoldConsumed);
     addMessage(miningMessage);
     updateUI();
     updateBackpackDisplay();
@@ -831,8 +961,9 @@ function addToBackpack(itemName) {
     calculateBackpackStats();
     const currentStackSize = gameData.backpack.currentStackSize;
     let added = false;
-    const itemsCopy = { ...gameData.backpack.items };
-    for (const [name, count] of Object.entries(itemsCopy)) {
+    
+    // 尝试添加到现有堆叠
+    for (const [name, count] of Object.entries(gameData.backpack.items)) {
         const baseName = name.split('_')[0];
         if (baseName === itemName && count < currentStackSize) {
             gameData.backpack.items[name]++;
@@ -840,21 +971,30 @@ function addToBackpack(itemName) {
             break;
         }
     }
+    
+    // 如果没有添加到现有堆叠，尝试创建新堆叠
     if (!added) {
-        const itemEntries = Object.entries(gameData.backpack.items);
-        let itemCount = itemEntries.length;
+        const itemCount = Object.keys(gameData.backpack.items).length;
         if (itemCount >= gameData.backpack.capacity) {
-            addMessage('背包已满，无法添加新物品！');
+            // 背包满了，放入临时背包
+            addToTempBackpack(itemName);
             return;
         }
+        
+        // 找到可用的新物品名称
         let suffix = 1;
         let newItemName = itemName;
         while (gameData.backpack.items[newItemName]) {
             suffix++;
             newItemName = `${itemName}_${suffix}`;
         }
+        
+        // 添加新物品
         gameData.backpack.items[newItemName] = 1;
+        added = true;
     }
+    
+    // 更新背包显示
     updateBackpackDisplay();
 }
 
@@ -977,6 +1117,12 @@ function upgradeTool(toolType) {
             return;
     }
     
+    // 检查临时背包是否有物品
+    if (hasTempItems()) {
+        alert('临时背包中有物品，请先处理临时背包中的物品！');
+        return;
+    }
+    
     // 检查工具是否已制作（矿车和头灯需要先制作）
     if ((toolType === 'cart' || toolType === 'headlight') && !tool.crafted) {
         alert(`请先制作${toolName}！`);
@@ -1052,140 +1198,17 @@ function checkLevelUp() {
     // 采矿锄：初始经验50点，每级增加50%，最大50级
     if (gameData.tools.pickaxe.exp === undefined) gameData.tools.pickaxe.exp = 0;
     if (gameData.tools.pickaxe.nextExp === undefined) gameData.tools.pickaxe.nextExp = 50;
-    while (gameData.tools.pickaxe.exp >= gameData.tools.pickaxe.nextExp && gameData.tools.pickaxe.level < 50) {
-        const nextLevel = gameData.tools.pickaxe.level + 1;
-        const requirements = getToolUpgradeRequirements('pickaxe', nextLevel);
-        
-        // 检查材料是否足够
-        let hasMaterials = true;
-        for (const [material, amount] of Object.entries(requirements.materials)) {
-            if (!hasEnoughItem(material, amount)) {
-                hasMaterials = false;
-                break;
-            }
-        }
-        
-        // 检查金币是否足够
-        const hasGold = gameData.player.gold >= requirements.gold;
-        
-        if (hasMaterials && hasGold) {
-            // 消耗材料
-            for (const [material, amount] of Object.entries(requirements.materials)) {
-                consumeItem(material, amount);
-            }
-            
-            // 消耗金币
-            gameData.player.gold -= requirements.gold;
-            
-            // 升级
-            gameData.tools.pickaxe.exp -= gameData.tools.pickaxe.nextExp;
-            gameData.tools.pickaxe.level++;
-            gameData.tools.pickaxe.nextExp = Math.floor(gameData.tools.pickaxe.nextExp * 1.5);
-            addMessage(`采矿锄升级到 ${gameData.tools.pickaxe.level} 级！`);
-        } else {
-            // 材料或金币不足，无法升级
-            if (!hasMaterials) {
-                addMessage(`采矿锄升级需要材料：${Object.entries(requirements.materials).map(([mat, amt]) => `${mat}×${amt}`).join(', ')}`);
-            }
-            if (!hasGold) {
-                addMessage(`采矿锄升级需要 ${requirements.gold} 金币`);
-            }
-            break;
-        }
-    }
     
     // 矿车：初始经验100点，每级增加50%，最大50级
     if (gameData.tools.cart && gameData.tools.cart.crafted) {
         if (gameData.tools.cart.exp === undefined) gameData.tools.cart.exp = 0;
         if (gameData.tools.cart.nextExp === undefined) gameData.tools.cart.nextExp = 100;
-        while (gameData.tools.cart.exp >= gameData.tools.cart.nextExp && gameData.tools.cart.level < 50) {
-            const nextLevel = gameData.tools.cart.level + 1;
-            const requirements = getToolUpgradeRequirements('cart', nextLevel);
-            
-            // 检查材料是否足够
-            let hasMaterials = true;
-            for (const [material, amount] of Object.entries(requirements.materials)) {
-                if (!hasEnoughItem(material, amount)) {
-                    hasMaterials = false;
-                    break;
-                }
-            }
-            
-            // 检查金币是否足够
-            const hasGold = gameData.player.gold >= requirements.gold;
-            
-            if (hasMaterials && hasGold) {
-                // 消耗材料
-                for (const [material, amount] of Object.entries(requirements.materials)) {
-                    consumeItem(material, amount);
-                }
-                
-                // 消耗金币
-                gameData.player.gold -= requirements.gold;
-                
-                // 升级
-                gameData.tools.cart.exp -= gameData.tools.cart.nextExp;
-                gameData.tools.cart.level++;
-                gameData.tools.cart.nextExp = Math.floor(gameData.tools.cart.nextExp * 1.5);
-                addMessage(`矿车升级到 ${gameData.tools.cart.level} 级！`);
-            } else {
-                // 材料或金币不足，无法升级
-                if (!hasMaterials) {
-                    addMessage(`矿车升级需要材料：${Object.entries(requirements.materials).map(([mat, amt]) => `${mat}×${amt}`).join(', ')}`);
-                }
-                if (!hasGold) {
-                    addMessage(`矿车升级需要 ${requirements.gold} 金币`);
-                }
-                break;
-            }
-        }
     }
     
     // 头灯：初始经验200点，每级增加50%，最大50级
     if (gameData.tools.headlight && gameData.tools.headlight.crafted) {
         if (gameData.tools.headlight.exp === undefined) gameData.tools.headlight.exp = 0;
         if (gameData.tools.headlight.nextExp === undefined) gameData.tools.headlight.nextExp = 200;
-        while (gameData.tools.headlight.exp >= gameData.tools.headlight.nextExp && gameData.tools.headlight.level < 50) {
-            const nextLevel = gameData.tools.headlight.level + 1;
-            const requirements = getToolUpgradeRequirements('headlight', nextLevel);
-            
-            // 检查材料是否足够
-            let hasMaterials = true;
-            for (const [material, amount] of Object.entries(requirements.materials)) {
-                if (!hasEnoughItem(material, amount)) {
-                    hasMaterials = false;
-                    break;
-                }
-            }
-            
-            // 检查金币是否足够
-            const hasGold = gameData.player.gold >= requirements.gold;
-            
-            if (hasMaterials && hasGold) {
-                // 消耗材料
-                for (const [material, amount] of Object.entries(requirements.materials)) {
-                    consumeItem(material, amount);
-                }
-                
-                // 消耗金币
-                gameData.player.gold -= requirements.gold;
-                
-                // 升级
-                gameData.tools.headlight.exp -= gameData.tools.headlight.nextExp;
-                gameData.tools.headlight.level++;
-                gameData.tools.headlight.nextExp = Math.floor(gameData.tools.headlight.nextExp * 1.5);
-                addMessage(`头灯升级到 ${gameData.tools.headlight.level} 级！`);
-            } else {
-                // 材料或金币不足，无法升级
-                if (!hasMaterials) {
-                    addMessage(`头灯升级需要材料：${Object.entries(requirements.materials).map(([mat, amt]) => `${mat}×${amt}`).join(', ')}`);
-                }
-                if (!hasGold) {
-                    addMessage(`头灯升级需要 ${requirements.gold} 金币`);
-                }
-                break;
-            }
-        }
     }
 }
 
@@ -1339,7 +1362,34 @@ function disassembleItem() {
 }
 
 function hasEnoughItem(itemName, amount) {
+    let total = 0;
+    // 检查主背包中的物品数量
     const itemEntries = Object.entries(gameData.backpack.items);
+    for (const [name, count] of itemEntries) {
+        const baseName = name.split('_')[0];
+        if (baseName === itemName) {
+            total += count;
+        }
+    }
+    // 检查临时背包中的物品数量
+    const tempEntries = Object.entries(gameData.tempBackpack.items);
+    for (const [name, count] of tempEntries) {
+        const baseName = name.split('_')[0];
+        if (baseName === itemName) {
+            total += count;
+        }
+    }
+    return total >= amount;
+}
+
+// 检查临时背包是否有物品
+function hasTempItems() {
+    return Object.keys(gameData.tempBackpack.items).length > 0;
+}
+
+// 从临时背包中获取物品总数
+function getTempItemCount(itemName) {
+    const itemEntries = Object.entries(gameData.tempBackpack.items);
     let total = 0;
     for (const [name, count] of itemEntries) {
         const baseName = name.split('_')[0];
@@ -1347,7 +1397,151 @@ function hasEnoughItem(itemName, amount) {
             total += count;
         }
     }
-    return total >= amount;
+    return total;
+}
+
+// 从临时背包中消耗物品
+function consumeTempItem(itemName, amount) {
+    const itemEntries = Object.entries(gameData.tempBackpack.items);
+    let remaining = amount;
+    const itemsToUpdate = [...itemEntries];
+    for (const [name, count] of itemsToUpdate) {
+        const baseName = name.split('_')[0];
+        if (baseName === itemName) {
+            if (count >= remaining) {
+                gameData.tempBackpack.items[name] -= remaining;
+                if (gameData.tempBackpack.items[name] <= 0) {
+                    delete gameData.tempBackpack.items[name];
+                }
+                remaining = 0;
+                break;
+            } else {
+                remaining -= count;
+                delete gameData.tempBackpack.items[name];
+            }
+        }
+    }
+    return remaining === 0;
+}
+
+// 将物品添加到临时背包
+function addToTempBackpack(itemName, amount = 1) {
+    for (let i = 0; i < amount; i++) {
+        let added = false;
+        const itemsCopy = { ...gameData.tempBackpack.items };
+        for (const [name, count] of Object.entries(itemsCopy)) {
+            const baseName = name.split('_')[0];
+            if (baseName === itemName) {
+                gameData.tempBackpack.items[name]++;
+                added = true;
+                break;
+            }
+        }
+        if (!added) {
+            let suffix = 1;
+            let newItemName = itemName;
+            while (gameData.tempBackpack.items[newItemName]) {
+                suffix++;
+                newItemName = `${itemName}_${suffix}`;
+            }
+            gameData.tempBackpack.items[newItemName] = 1;
+        }
+    }
+    addMessage(`背包已满，${itemName}已放入临时背包！`);
+    updateTempBackpackDisplay();
+}
+
+// 显示临时背包内容
+function updateTempBackpackDisplay() {
+    const content = document.getElementById('temp-backpack-content');
+    if (!content) return;
+    
+    const items = Object.entries(gameData.tempBackpack.items);
+    
+    if (items.length === 0) {
+        content.innerHTML = '<p>临时背包为空</p>';
+        return;
+    }
+    
+    let html = '<div class="temp-items-list">';
+    items.forEach(([itemName, count]) => {
+        const displayName = itemName.split('_')[0];
+        html += `
+            <div class="temp-item">
+                <span>${displayName}</span>
+                <span>数量: ${count}</span>
+            </div>
+        `;
+    });
+    html += '</div>';
+    content.innerHTML = html;
+}
+
+// 将临时背包中的物品移到主背包中
+function moveTempItemsToBackpack() {
+    // 保存临时背包中的物品
+    const tempItems = { ...gameData.tempBackpack.items };
+    
+    // 清空临时背包
+    gameData.tempBackpack.items = {};
+    
+    let movedCount = 0;
+    let totalItems = Object.values(tempItems).reduce((a, b) => a + b, 0);
+    
+    // 逐个处理临时背包中的物品
+    for (const [itemName, count] of Object.entries(tempItems)) {
+        const baseName = itemName.split('_')[0];
+        
+        // 先计算主背包的可用空间
+        calculateBackpackStats();
+        const currentStackSize = gameData.backpack.currentStackSize;
+        
+        // 计算主背包中该物品的当前数量
+        let existingCount = 0;
+        for (const [name, cnt] of Object.entries(gameData.backpack.items)) {
+            const existingBaseName = name.split('_')[0];
+            if (existingBaseName === baseName) {
+                existingCount += cnt;
+            }
+        }
+        
+        // 计算可以添加的数量
+        const availableSlots = gameData.backpack.capacity - Object.keys(gameData.backpack.items).length;
+        const maxStacks = availableSlots + Math.floor(existingCount / currentStackSize);
+        const maxCapacity = maxStacks * currentStackSize;
+        const canAdd = Math.max(0, maxCapacity - existingCount);
+        
+        // 实际添加的数量
+        const actualAdd = Math.min(count, canAdd);
+        
+        // 添加物品到主背包
+        for (let i = 0; i < actualAdd; i++) {
+            addToBackpack(baseName);
+            movedCount++;
+        }
+        
+        // 将剩余物品放回临时背包
+        const remaining = count - actualAdd;
+        if (remaining > 0) {
+            for (let i = 0; i < remaining; i++) {
+                addToTempBackpack(baseName);
+            }
+        }
+    }
+    
+    // 显示结果
+    if (movedCount > 0) {
+        addMessage(`成功将 ${movedCount} 个物品从临时背包移到主背包！`);
+    }
+    
+    const remainingItems = Object.values(gameData.tempBackpack.items).reduce((a, b) => a + b, 0);
+    if (remainingItems > 0) {
+        addMessage(`主背包空间不足，还有 ${remainingItems} 个物品留在临时背包中！`);
+    }
+    
+    // 更新显示
+    updateTempBackpackDisplay();
+    updateBackpackDisplay();
 }
 
 function organizeBackpack() {
@@ -1498,36 +1692,63 @@ function updateMessages() {
     });
 }
 
-function generateMiningMessage(mineral, drops) {
+function generateMiningMessage(mineral, drops, headlightGoldConsumed = false) {
     let message = '恭喜获得：';
     
     // 计算矿物数量，考虑矿车加成
     let baseAmount = 1;
     let cartBonus = 0;
+    let cartConsume = 0;
     if (gameData.tools.cart && gameData.tools.cart.crafted && gameData.tools.cart.active) {
-        // 矿车每5级提升1个采矿数量
-        cartBonus = Math.floor(gameData.tools.cart.level / 5);
+        // 检查煤矿数量
+        if (hasEnoughItem('煤矿', 1)) {
+            // 矿车每5级提升1个采矿数量
+            cartBonus = Math.floor(gameData.tools.cart.level / 5);
+            cartConsume = 1; // 矿车消耗1煤矿
+        }
     }
     const totalAmount = baseAmount + cartBonus;
     
     // 显示矿物数量，包括加成说明
     if (cartBonus > 0) {
         message += `${mineral.name}*${totalAmount}（基础*${baseAmount}+矿车*${cartBonus}）, `;
+        if (cartConsume > 0) {
+            message += `煤矿-${cartConsume}（矿车消耗）, `;
+        }
     } else {
         message += `${mineral.name}*${baseAmount}, `;
+    }
+    
+    // 头灯消耗 - 只在实际消耗金币时显示
+    if (headlightGoldConsumed) {
+        message += `金币-1（头灯消耗）, `;
     }
     
     drops.forEach(drop => {
         message += `${drop}*1, `;
     });
     message += `人物经验*${mineral.exp}, `;
-    message += `采矿锄经验*${mineral.exp}, `;
+    
+    // 只有当工具经验未满时才显示工具经验提示
+    const pickaxeNextExp = gameData.tools.pickaxe.nextExp || 50;
+    if (gameData.tools.pickaxe.exp < pickaxeNextExp && gameData.tools.pickaxe.level < 50) {
+        message += `采矿锄经验*${mineral.exp}, `;
+    }
+    
     if (gameData.tools.cart && gameData.tools.cart.crafted) {
-        message += `矿车经验*${mineral.exp}, `;
+        const cartNextExp = gameData.tools.cart.nextExp || 50;
+        if (gameData.tools.cart.exp < cartNextExp && gameData.tools.cart.level < 50) {
+            message += `矿车经验*${mineral.exp}, `;
+        }
     }
+    
     if (gameData.tools.headlight && gameData.tools.headlight.crafted) {
-        message += `头灯经验*${mineral.exp}, `;
+        const headlightNextExp = gameData.tools.headlight.nextExp || 50;
+        if (gameData.tools.headlight.exp < headlightNextExp && gameData.tools.headlight.level < 50) {
+            message += `头灯经验*${mineral.exp}, `;
+        }
     }
+    
     message = message.slice(0, -2);
     message += '！';
     return message;
@@ -1603,6 +1824,12 @@ function addEventListeners() {
     document.getElementById('upgrade-pickaxe').addEventListener('click', () => upgradeTool('pickaxe'));
     document.getElementById('upgrade-cart').addEventListener('click', () => upgradeTool('cart'));
     document.getElementById('upgrade-headlight').addEventListener('click', () => upgradeTool('headlight'));
+    
+    // 临时背包按钮
+    const moveTempBtn = document.getElementById('move-temp-items');
+    if (moveTempBtn) {
+        moveTempBtn.addEventListener('click', moveTempItemsToBackpack);
+    }
 }
 
 function showSaveMessage(message) {
@@ -1617,12 +1844,24 @@ function showSaveMessage(message) {
 function updateSellPanel() {
     const sellItemSelect = document.getElementById('sell-item');
     sellItemSelect.innerHTML = '';
-    const items = Object.keys(gameData.backpack.items);
-    items.forEach(item => {
+    
+    // 添加主背包中的物品
+    const backpackItems = Object.keys(gameData.backpack.items);
+    backpackItems.forEach(item => {
         const option = document.createElement('option');
-        option.value = item;
+        option.value = `backpack_${item}`;
         const displayName = item.split('_')[0];
-        option.textContent = `${displayName} (${gameData.backpack.items[item]})`;
+        option.textContent = `${displayName} (主背包) (${gameData.backpack.items[item]})`;
+        sellItemSelect.appendChild(option);
+    });
+    
+    // 添加临时背包中的物品
+    const tempItems = Object.keys(gameData.tempBackpack.items);
+    tempItems.forEach(item => {
+        const option = document.createElement('option');
+        option.value = `temp_${item}`;
+        const displayName = item.split('_')[0];
+        option.textContent = `${displayName} (临时背包) (${gameData.tempBackpack.items[item]})`;
         sellItemSelect.appendChild(option);
     });
 }
@@ -1630,13 +1869,18 @@ function updateSellPanel() {
 function sellItem() {
     const sellItemSelect = document.getElementById('sell-item');
     const sellAmountInput = document.getElementById('sell-amount');
-    const itemName = sellItemSelect.value;
+    const itemValue = sellItemSelect.value;
     const amount = parseInt(sellAmountInput.value);
-    if (!itemName || isNaN(amount) || amount <= 0) {
+    if (!itemValue || isNaN(amount) || amount <= 0) {
         return;
     }
-    let price = 0;
+    
+    // 解析物品值，判断物品来自哪个背包
+    const [backpackType, ...itemNameParts] = itemValue.split('_');
+    const itemName = itemNameParts.join('_');
     const baseItemName = itemName.split('_')[0];
+    
+    let price = 0;
     
     // 检查是否是配方物品
     if (baseItemName.includes('配方')) {
@@ -1695,28 +1939,56 @@ function sellItem() {
         }
     }
     
-    if (gameData.backpack.items[itemName] < amount) {
+    // 检查物品数量是否足够
+    let itemCount = 0;
+    if (backpackType === 'backpack') {
+        itemCount = gameData.backpack.items[itemName] || 0;
+    } else if (backpackType === 'temp') {
+        itemCount = gameData.tempBackpack.items[itemName] || 0;
+    }
+    
+    if (itemCount < amount) {
         alert('物品数量不足！');
         return;
     }
+    
+    // 计算总价并增加金币
     const totalPrice = price * amount;
     gameData.player.gold += totalPrice;
     addGainedGold(totalPrice);
-    gameData.backpack.items[itemName] -= amount;
-    const displayName = itemName.split('_')[0];
+    
+    // 从相应的背包中消耗物品
+    if (backpackType === 'backpack') {
+        if (gameData.backpack.items[itemName]) {
+            gameData.backpack.items[itemName] -= amount;
+            if (gameData.backpack.items[itemName] <= 0) {
+                delete gameData.backpack.items[itemName];
+            }
+        }
+    } else if (backpackType === 'temp') {
+        if (gameData.tempBackpack.items[itemName]) {
+            gameData.tempBackpack.items[itemName] -= amount;
+            if (gameData.tempBackpack.items[itemName] <= 0) {
+                delete gameData.tempBackpack.items[itemName];
+            }
+            updateTempBackpackDisplay();
+        }
+    }
+    
+    const displayName = baseItemName;
     const sellMessage = `出售成功：${displayName}*${amount}，获得金币*${totalPrice}！`;
     addMessage(sellMessage);
-    if (gameData.backpack.items[itemName] <= 0) {
-        delete gameData.backpack.items[itemName];
-    }
+    
     updateUI();
     updateBackpackDisplay();
     updateSellPanel();
 }
 
 function consumeItem(itemName, amount) {
-    const itemEntries = Object.entries(gameData.backpack.items);
     let remaining = amount;
+    
+    // 先从主背包中消耗物品
+    const itemEntries = Object.entries(gameData.backpack.items);
     const itemsToUpdate = [...itemEntries];
     for (const [name, count] of itemsToUpdate) {
         const baseName = name.split('_')[0];
@@ -1734,6 +2006,31 @@ function consumeItem(itemName, amount) {
             }
         }
     }
+    
+    // 如果主背包中不够，从临时背包中消耗物品
+    if (remaining > 0) {
+        const tempEntries = Object.entries(gameData.tempBackpack.items);
+        const tempItemsToUpdate = [...tempEntries];
+        for (const [name, count] of tempItemsToUpdate) {
+            const baseName = name.split('_')[0];
+            if (baseName === itemName) {
+                if (count >= remaining) {
+                    gameData.tempBackpack.items[name] -= remaining;
+                    if (gameData.tempBackpack.items[name] <= 0) {
+                        delete gameData.tempBackpack.items[name];
+                    }
+                    remaining = 0;
+                    break;
+                } else {
+                    remaining -= count;
+                    delete gameData.tempBackpack.items[name];
+                }
+            }
+        }
+        // 更新临时背包显示
+        updateTempBackpackDisplay();
+    }
+    
     return remaining === 0;
 }
 
@@ -2114,6 +2411,12 @@ function craftAlloy(alloyName) {
     const recipe = alloyRecipes[alloyName];
     if (!recipe) return;
     
+    // 检查临时背包是否有物品
+    if (hasTempItems()) {
+        alert('临时背包中有物品，请先处理临时背包中的物品！');
+        return;
+    }
+    
     // 检查是否获得了配方
     if (!hasAlloyRecipe(alloyName)) {
         alert('你还没有获得这个合金的配方！');
@@ -2156,19 +2459,78 @@ function craftAlloy(alloyName) {
     
     // 给玩家和工具添加经验
     gameData.player.exp += alloyExp;
-    gameData.tools.pickaxe.exp += alloyExp;
-    if (gameData.tools.cart.crafted) {
-        gameData.tools.cart.exp += alloyExp;
+    
+    // 只有当工具经验值未满时才添加经验值
+    let pickaxeGainedExp = 0;
+    if (gameData.tools.pickaxe.level < 50) {
+        const pickaxeNextExp = gameData.tools.pickaxe.nextExp || 50;
+        if (gameData.tools.pickaxe.exp < pickaxeNextExp) {
+            gameData.tools.pickaxe.exp += alloyExp;
+            pickaxeGainedExp = alloyExp;
+        }
     }
-    if (gameData.tools.headlight.crafted) {
-        gameData.tools.headlight.exp += alloyExp;
+    
+    let cartGainedExp = 0;
+    if (gameData.tools.cart.crafted && gameData.tools.cart.level < 50) {
+        const cartNextExp = gameData.tools.cart.nextExp || 50;
+        if (gameData.tools.cart.exp < cartNextExp) {
+            gameData.tools.cart.exp += alloyExp;
+            cartGainedExp = alloyExp;
+        }
+    }
+    
+    let headlightGainedExp = 0;
+    if (gameData.tools.headlight.crafted && gameData.tools.headlight.level < 50) {
+        const headlightNextExp = gameData.tools.headlight.nextExp || 50;
+        if (gameData.tools.headlight.exp < headlightNextExp) {
+            gameData.tools.headlight.exp += alloyExp;
+            headlightGainedExp = alloyExp;
+        }
     }
     addGainedExp(alloyExp);
     checkLevelUp();
     
     // 添加合金到背包
     addToBackpack(alloyName);
-    addMessage(`合金制作成功！获得${alloyName}*1，经验*${alloyExp}！`);
+    
+    // 生成消耗材料的消息
+    let consumeMessage = '';
+    for (const [material, amount] of Object.entries(recipe.materials)) {
+        consumeMessage += `${material}-${amount}, `;
+    }
+    consumeMessage = consumeMessage.slice(0, -2);
+    
+    // 生成工具经验消息
+    let toolExpMessage = '';
+    const pickaxeNextExp = gameData.tools.pickaxe.nextExp || 50;
+    if (gameData.tools.pickaxe.exp < pickaxeNextExp && gameData.tools.pickaxe.level < 50) {
+        toolExpMessage += `采矿锄经验*${alloyExp}, `;
+    }
+    
+    if (gameData.tools.cart && gameData.tools.cart.crafted) {
+        const cartNextExp = gameData.tools.cart.nextExp || 50;
+        if (gameData.tools.cart.exp < cartNextExp && gameData.tools.cart.level < 50) {
+            toolExpMessage += `矿车经验*${alloyExp}, `;
+        }
+    }
+    
+    if (gameData.tools.headlight && gameData.tools.headlight.crafted) {
+        const headlightNextExp = gameData.tools.headlight.nextExp || 50;
+        if (gameData.tools.headlight.exp < headlightNextExp && gameData.tools.headlight.level < 50) {
+            toolExpMessage += `头灯经验*${alloyExp}, `;
+        }
+    }
+    
+    toolExpMessage = toolExpMessage.slice(0, -2);
+    
+    // 生成完整消息
+    let fullMessage = `合金制作成功！获得${alloyName}*1，${consumeMessage}`;
+    if (toolExpMessage) {
+        fullMessage += `，${toolExpMessage}`;
+    }
+    fullMessage += `，经验*${alloyExp}！`;
+    
+    addMessage(fullMessage);
     updateUI();
     updateBackpackDisplay();
     openAlloyCraftPanel();
@@ -2207,6 +2569,7 @@ function loadGame() {
     generateBackpack();
     generateExpansionSlots();
     updateBackpackDisplay();
+    updateTempBackpackDisplay();
 }
 
 function ensureGameDataIntegrity() {
@@ -2242,6 +2605,18 @@ function ensureGameDataIntegrity() {
             }
         };
     }
+    // 确保头灯有lastGoldConsume属性
+    if (gameData.tools.headlight && !gameData.tools.headlight.lastGoldConsume) {
+        gameData.tools.headlight.lastGoldConsume = Date.now();
+    }
+    // 确保矿车有active属性
+    if (gameData.tools.cart && gameData.tools.cart.crafted && gameData.tools.cart.active === undefined) {
+        gameData.tools.cart.active = true;
+    }
+    // 确保头灯有active属性
+    if (gameData.tools.headlight && gameData.tools.headlight.crafted && gameData.tools.headlight.active === undefined) {
+        gameData.tools.headlight.active = true;
+    }
     if (!gameData.furnace) {
         gameData.furnace = {
             crafted: false,
@@ -2264,6 +2639,11 @@ function ensureGameDataIntegrity() {
     }
     if (!gameData.unlockedRecipes) {
         gameData.unlockedRecipes = {};
+    }
+    if (!gameData.tempBackpack) {
+        gameData.tempBackpack = {
+            items: {}
+        };
     }
     if (!gameData.backpack.baseCapacity) {
         gameData.backpack.baseCapacity = 10;
@@ -2328,6 +2708,9 @@ function initDefaultGameData() {
             maxExpansionSlots: 10,
             baseStackSize: 20,
             currentStackSize: 20
+        },
+        tempBackpack: {
+            items: {}
         },
         unlockedRecipes: {},
         miningCount: {},
