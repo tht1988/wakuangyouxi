@@ -40,7 +40,7 @@ let gameData = {
         baseCapacity: 10,
         items: {},
         expansionSlots: [],
-        maxExpansionSlots: 10,
+        maxExpansionSlots: 12,
         baseStackSize: 20,
         currentStackSize: 20
     },
@@ -858,6 +858,33 @@ function completeMining(mineral) {
     for (let i = 0; i < baseAmount; i++) {
         addToBackpack(mineral.name);
         addGainedMineral();
+        // 为矿车额外提供的矿物添加经验
+        if (i > 0) {
+            gameData.player.exp += mineral.exp;
+            addGainedExp(mineral.exp);
+            
+            // 只有当工具经验值未满时才添加经验值
+            if (gameData.tools.pickaxe.level < 50) {
+                const pickaxeNextExp = gameData.tools.pickaxe.nextExp || 50;
+                if (gameData.tools.pickaxe.exp < pickaxeNextExp) {
+                    gameData.tools.pickaxe.exp += mineral.exp;
+                }
+            }
+            
+            if (gameData.tools.cart && gameData.tools.cart.level < 50) {
+                const cartNextExp = gameData.tools.cart.nextExp || 50;
+                if (gameData.tools.cart.exp < cartNextExp) {
+                    gameData.tools.cart.exp += mineral.exp;
+                }
+            }
+            
+            if (gameData.tools.headlight && gameData.tools.headlight.level < 50) {
+                const headlightNextExp = gameData.tools.headlight.nextExp || 50;
+                if (gameData.tools.headlight.exp < headlightNextExp) {
+                    gameData.tools.headlight.exp += mineral.exp;
+                }
+            }
+        }
     }
     
     // 头灯效果：增加高一级矿物发现几率
@@ -868,11 +895,11 @@ function completeMining(mineral) {
             gameData.tools.headlight.lastGoldConsume = Date.now();
         }
         
-        // 每30秒消耗1金币
+        // 每30秒消耗10金币
         const now = Date.now();
         if (now - gameData.tools.headlight.lastGoldConsume >= 30000) {
-            if (gameData.player.gold >= 1) {
-                gameData.player.gold -= 1;
+            if (gameData.player.gold >= 10) {
+                gameData.player.gold -= 10;
                 gameData.tools.headlight.lastGoldConsume = now;
                 headlightGoldConsumed = true;
             } else {
@@ -894,6 +921,34 @@ function completeMining(mineral) {
                 for (let i = 0; i < higherAmount; i++) {
                     addToBackpack(higherMineral);
                     addGainedMineral();
+                    // 为头灯额外提供的矿物添加经验
+                    const higherMineralData = minerals.find(m => m.name === higherMineral);
+                    if (higherMineralData) {
+                        gameData.player.exp += higherMineralData.exp;
+                        addGainedExp(higherMineralData.exp);
+                        
+                        // 只有当工具经验值未满时才添加经验值
+                        if (gameData.tools.pickaxe.level < 50) {
+                            const pickaxeNextExp = gameData.tools.pickaxe.nextExp || 50;
+                            if (gameData.tools.pickaxe.exp < pickaxeNextExp) {
+                                gameData.tools.pickaxe.exp += higherMineralData.exp;
+                            }
+                        }
+                        
+                        if (gameData.tools.cart && gameData.tools.cart.level < 50) {
+                            const cartNextExp = gameData.tools.cart.nextExp || 50;
+                            if (gameData.tools.cart.exp < cartNextExp) {
+                                gameData.tools.cart.exp += higherMineralData.exp;
+                            }
+                        }
+                        
+                        if (gameData.tools.headlight && gameData.tools.headlight.level < 50) {
+                            const headlightNextExp = gameData.tools.headlight.nextExp || 50;
+                            if (gameData.tools.headlight.exp < headlightNextExp) {
+                                gameData.tools.headlight.exp += higherMineralData.exp;
+                            }
+                        }
+                    }
                 }
                 addMessage(`头灯效果：发现了 ${higherMineral}×${higherAmount}！`);
             }
@@ -934,6 +989,35 @@ function completeMining(mineral) {
         }
     }
     
+    // 计算总经验值
+    let totalExp = mineral.exp; // 基础矿物经验
+    
+    // 矿车额外矿物经验（只有当矿车激活时才计算）
+    let cartBonus = 0;
+    if (gameData.tools.cart && gameData.tools.cart.crafted && gameData.tools.cart.active) {
+        cartBonus = Math.floor(gameData.tools.cart.level / 5);
+        totalExp += mineral.exp * cartBonus;
+    }
+    
+    // 头灯额外矿物经验
+    let headlightExtraExp = 0;
+    if (gameData.tools.headlight && gameData.tools.headlight.crafted && gameData.tools.headlight.active) {
+        const higherLevelChance = 0.1 + (gameData.tools.headlight.level * 0.01);
+        if (Math.random() < higherLevelChance) {
+            const mineralLevels = ['石矿', '煤矿', '铁矿', '铜矿', '钴矿', '镍矿', '银矿', '白金矿', '金矿', '水晶矿'];
+            const currentIndex = mineralLevels.indexOf(mineral.name);
+            if (currentIndex < mineralLevels.length - 1) {
+                const higherMineral = mineralLevels[currentIndex + 1];
+                const higherMineralData = minerals.find(m => m.name === higherMineral);
+                if (higherMineralData) {
+                    const higherAmount = Math.floor(Math.random() * 2) + 1;
+                    headlightExtraExp = higherMineralData.exp * higherAmount;
+                    totalExp += headlightExtraExp;
+                }
+            }
+        }
+    }
+    
     const obtainedDrops = [];
     if (mineral.drops) {
         mineral.drops.forEach(drop => {
@@ -946,7 +1030,7 @@ function completeMining(mineral) {
             }
         });
     }
-    const miningMessage = generateMiningMessage(mineral, obtainedDrops, headlightGoldConsumed);
+    const miningMessage = generateMiningMessage(mineral, obtainedDrops, headlightGoldConsumed, totalExp);
     addMessage(miningMessage);
     updateUI();
     updateBackpackDisplay();
@@ -1198,17 +1282,29 @@ function checkLevelUp() {
     // 采矿锄：初始经验50点，每级增加50%，最大50级
     if (gameData.tools.pickaxe.exp === undefined) gameData.tools.pickaxe.exp = 0;
     if (gameData.tools.pickaxe.nextExp === undefined) gameData.tools.pickaxe.nextExp = 50;
+    // 确保经验不会超过下一级所需经验
+    if (gameData.tools.pickaxe.exp >= gameData.tools.pickaxe.nextExp) {
+        gameData.tools.pickaxe.exp = gameData.tools.pickaxe.nextExp;
+    }
     
     // 矿车：初始经验100点，每级增加50%，最大50级
     if (gameData.tools.cart && gameData.tools.cart.crafted) {
         if (gameData.tools.cart.exp === undefined) gameData.tools.cart.exp = 0;
         if (gameData.tools.cart.nextExp === undefined) gameData.tools.cart.nextExp = 100;
+        // 确保经验不会超过下一级所需经验
+        if (gameData.tools.cart.exp >= gameData.tools.cart.nextExp) {
+            gameData.tools.cart.exp = gameData.tools.cart.nextExp;
+        }
     }
     
     // 头灯：初始经验200点，每级增加50%，最大50级
     if (gameData.tools.headlight && gameData.tools.headlight.crafted) {
         if (gameData.tools.headlight.exp === undefined) gameData.tools.headlight.exp = 0;
         if (gameData.tools.headlight.nextExp === undefined) gameData.tools.headlight.nextExp = 200;
+        // 确保经验不会超过下一级所需经验
+        if (gameData.tools.headlight.exp >= gameData.tools.headlight.nextExp) {
+            gameData.tools.headlight.exp = gameData.tools.headlight.nextExp;
+        }
     }
 }
 
@@ -1217,24 +1313,85 @@ function getToolDescription() {
     if (!gameData.tools.cart) gameData.tools.cart = { crafted: false, active: true };
     if (!gameData.tools.headlight) gameData.tools.headlight = { crafted: false, active: true };
     
+    // 获取下一级工具升级需求
+    function getNextLevelRequirements(toolType) {
+        const nextLevel = gameData.tools[toolType].level + 1;
+        if (nextLevel > 50) {
+            return '已达到最高等级';
+        }
+        const requirements = getToolUpgradeRequirements(toolType, nextLevel);
+        let materialsText = '';
+        for (const [material, amount] of Object.entries(requirements.materials)) {
+            // 计算背包中现有材料的数量
+            let existingAmount = 0;
+            for (const [itemName, count] of Object.entries(gameData.backpack.items)) {
+                const baseName = itemName.split('_')[0];
+                if (baseName === material) {
+                    existingAmount += count;
+                }
+            }
+            materialsText += `${material}×${amount}(${existingAmount}), `;
+        }
+        materialsText = materialsText.slice(0, -2);
+        return `${materialsText}，金币${requirements.gold}`;
+    }
+    
+    // 计算矿车还能用多少次
+    function getCartUsesLeft() {
+        if (!gameData.tools.cart.crafted || !gameData.tools.cart.active) {
+            return 0;
+        }
+        let coalCount = 0;
+        // 遍历背包中的所有物品，计算煤矿的总数量
+        for (const [itemName, count] of Object.entries(gameData.backpack.items)) {
+            const baseName = itemName.split('_')[0];
+            if (baseName === '煤矿') {
+                coalCount += count;
+            }
+        }
+        return coalCount;
+    }
+    
+    // 计算头灯剩余时间
+    function getHeadlightTimeLeft() {
+        if (!gameData.tools.headlight.crafted || !gameData.tools.headlight.active) {
+            return { current: 0, total: 0 };
+        }
+        const now = Date.now();
+        const lastConsume = gameData.tools.headlight.lastGoldConsume || now;
+        const timeSinceLast = now - lastConsume;
+        const currentTimeLeft = Math.max(0, 30000 - timeSinceLast);
+        const goldCount = gameData.player.gold;
+        const totalTimeLeft = Math.floor(goldCount / 10) * 30;
+        return { current: currentTimeLeft, total: totalTimeLeft };
+    }
+    
+    const cartUsesLeft = getCartUsesLeft();
+    const headlightTime = getHeadlightTimeLeft();
+    
     const descriptions = {
         pickaxe: {
             name: '采矿锄',
             description: '加快采矿速度',
             current: `当前效果: 采矿速度提升 ${Math.min(50, gameData.tools.pickaxe.level * 1)}%`,
-            next: gameData.tools.pickaxe.level < 50 ? `下一级: 采矿速度提升 ${Math.min(50, (gameData.tools.pickaxe.level + 1) * 1)}%` : '已达到最高等级'
+            next: gameData.tools.pickaxe.level < 50 ? `下一级: 采矿速度提升 ${Math.min(50, (gameData.tools.pickaxe.level + 1) * 1)}%` : '已达到最高等级',
+            upgrade: gameData.tools.pickaxe.level < 50 ? `升级需求: ${getNextLevelRequirements('pickaxe')}` : ''
         },
         cart: {
             name: '矿车',
             description: '增加采矿数量，每次消耗1煤矿',
             current: gameData.tools.cart.crafted ? `当前效果: 采矿数量+${Math.floor(gameData.tools.cart.level / 5)}个` : '未制作',
-            next: gameData.tools.cart.crafted ? (gameData.tools.cart.level < 50 ? `下一级: 采矿数量+${Math.floor((gameData.tools.cart.level + 1) / 5)}个` : '已达到最高等级') : '制作后获得效果'
+            next: gameData.tools.cart.crafted ? (gameData.tools.cart.level < 50 ? `下一级: 采矿数量+${Math.floor((gameData.tools.cart.level + 1) / 5)}个` : '已达到最高等级') : '制作后获得效果',
+            upgrade: gameData.tools.cart.crafted && gameData.tools.cart.level < 50 ? `升级需求: ${getNextLevelRequirements('cart')}` : '',
+            usesLeft: gameData.tools.cart.crafted && gameData.tools.cart.active ? `还能用: ${cartUsesLeft}次` : ''
         },
         headlight: {
             name: '头灯',
-            description: '增加高一级矿物发现几率，每30秒消耗1金币',
+            description: '增加高一级矿物发现几率，每30秒消耗10金币',
             current: gameData.tools.headlight.crafted ? `当前效果: 高一级矿物几率+${10 + gameData.tools.headlight.level * 1}%` : '未制作',
-            next: gameData.tools.headlight.crafted ? (gameData.tools.headlight.level < 50 ? `下一级: 高一级矿物几率+${10 + (gameData.tools.headlight.level + 1) * 1}%` : '已达到最高等级') : '制作后获得效果'
+            next: gameData.tools.headlight.crafted ? (gameData.tools.headlight.level < 50 ? `下一级: 高一级矿物几率+${10 + (gameData.tools.headlight.level + 1) * 1}%` : '已达到最高等级') : '制作后获得效果',
+            upgrade: gameData.tools.headlight.crafted && gameData.tools.headlight.level < 50 ? `升级需求: ${getNextLevelRequirements('headlight')}` : '',
+            timeLeft: gameData.tools.headlight.crafted && gameData.tools.headlight.active ? `剩余时间: ${(headlightTime.current / 1000).toFixed(0)}秒，总可用: ${headlightTime.total}秒` : ''
         }
     };
     return descriptions;
@@ -1282,6 +1439,9 @@ function updateToolDescriptions(descriptions) {
                 <strong>${info.name}</strong>: ${info.description}<br>
                 <span style="font-size: 0.8em; color: #666;">${info.current}</span><br>
                 <span style="font-size: 0.8em; color: #888;">${info.next}</span>
+                ${info.upgrade ? `<br><span style="font-size: 0.8em; color: #4CAF50;">${info.upgrade}</span>` : ''}
+                ${info.usesLeft ? `<br><span style="font-size: 0.8em; color: #FF9800;">${info.usesLeft}</span>` : ''}
+                ${info.timeLeft ? `<br><span style="font-size: 0.8em; color: #2196F3;">${info.timeLeft}</span>` : ''}
             </div>
         `;
     }
@@ -1692,7 +1852,7 @@ function updateMessages() {
     });
 }
 
-function generateMiningMessage(mineral, drops, headlightGoldConsumed = false) {
+function generateMiningMessage(mineral, drops, headlightGoldConsumed = false, totalExp = null) {
     let message = '恭喜获得：';
     
     // 计算矿物数量，考虑矿车加成
@@ -1721,31 +1881,34 @@ function generateMiningMessage(mineral, drops, headlightGoldConsumed = false) {
     
     // 头灯消耗 - 只在实际消耗金币时显示
     if (headlightGoldConsumed) {
-        message += `金币-1（头灯消耗）, `;
+        message += `金币-10（头灯消耗）, `;
     }
     
     drops.forEach(drop => {
         message += `${drop}*1, `;
     });
-    message += `人物经验*${mineral.exp}, `;
+    
+    // 使用计算出的总经验值或默认使用基础矿物经验值
+    const expToShow = totalExp || mineral.exp;
+    message += `人物经验*${expToShow}, `;
     
     // 只有当工具经验未满时才显示工具经验提示
     const pickaxeNextExp = gameData.tools.pickaxe.nextExp || 50;
     if (gameData.tools.pickaxe.exp < pickaxeNextExp && gameData.tools.pickaxe.level < 50) {
-        message += `采矿锄经验*${mineral.exp}, `;
+        message += `采矿锄经验*${expToShow}, `;
     }
     
     if (gameData.tools.cart && gameData.tools.cart.crafted) {
         const cartNextExp = gameData.tools.cart.nextExp || 50;
         if (gameData.tools.cart.exp < cartNextExp && gameData.tools.cart.level < 50) {
-            message += `矿车经验*${mineral.exp}, `;
+            message += `矿车经验*${expToShow}, `;
         }
     }
     
     if (gameData.tools.headlight && gameData.tools.headlight.crafted) {
         const headlightNextExp = gameData.tools.headlight.nextExp || 50;
         if (gameData.tools.headlight.exp < headlightNextExp && gameData.tools.headlight.level < 50) {
-            message += `头灯经验*${mineral.exp}, `;
+            message += `头灯经验*${expToShow}, `;
         }
     }
     
@@ -2629,7 +2792,7 @@ function ensureGameDataIntegrity() {
             baseCapacity: 10,
             items: {},
             expansionSlots: [],
-            maxExpansionSlots: 10,
+            maxExpansionSlots: 12,
             baseStackSize: 20,
             currentStackSize: 20
         };
@@ -2654,9 +2817,8 @@ function ensureGameDataIntegrity() {
     if (!gameData.backpack.expansionSlots) {
         gameData.backpack.expansionSlots = [];
     }
-    if (!gameData.backpack.maxExpansionSlots) {
-        gameData.backpack.maxExpansionSlots = 10;
-    }
+    // 强制设置maxExpansionSlots为12，无论旧存档中是什么值
+    gameData.backpack.maxExpansionSlots = 12;
     while (gameData.backpack.expansionSlots.length < gameData.backpack.maxExpansionSlots) {
         gameData.backpack.expansionSlots.push(null);
     }
@@ -2701,14 +2863,14 @@ function initDefaultGameData() {
             level: 0
         },
         backpack: {
-            capacity: 10,
-            baseCapacity: 10,
-            items: {},
-            expansionSlots: [],
-            maxExpansionSlots: 10,
-            baseStackSize: 20,
-            currentStackSize: 20
-        },
+        capacity: 10,
+        baseCapacity: 10,
+        items: {},
+        expansionSlots: [],
+        maxExpansionSlots: 12,
+        baseStackSize: 20,
+        currentStackSize: 20
+    },
         tempBackpack: {
             items: {}
         },
@@ -2794,3 +2956,4 @@ function updateDisassemblePanel() {
 }
 
 window.addEventListener('DOMContentLoaded', initGame);
+
