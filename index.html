@@ -107,23 +107,84 @@
         </div>
     </div>
 
-        <!-- 熔炉系统 -->
-        <div class="furnace">
-            <h2>熔炉 (等级: <span id="furnace-level">0</span>)</h2>
-            <div class="furnace-controls">
-                <button id="smelt-stone">融石</button>
-                <button id="make-alloy">合金</button>
+        <!-- 熔炉和制作系统容器 -->
+        <div class="furnace-container">
+            <!-- 熔炉系统 -->
+            <div class="furnace">
+                <h2>熔炉 (等级: <span id="furnace-level">0</span>)</h2>
+                <div class="furnace-controls">
+                    <div class="furnace-control-item">
+                        <button id="smelt-stone">融石</button>
+                        <div class="furnace-dropdown smelt-dropdown" id="smelt-dropdown" style="display: none;">
+                            <div class="dropdown-content">
+                                <div class="dropdown-header">选择融石数量</div>
+                                <div class="dropdown-body">
+                                    <div class="smelt-info" id="smelt-info" style="margin-top: 10px; padding: 10px; background-color: #f9f9f9; border-radius: 3px; border: 1px solid #ddd;">
+                                        <div class="smelt-info-header">融石属性</div>
+                                        <div class="smelt-info-body" id="smelt-info-body">
+                                            <p>请输入制作数量</p>
+                                        </div>
+                                    </div>
+                                    <div class="smelt-amount" style="margin-top: 10px;">
+                                        <label>制作数量:</label>
+                                        <input type="number" id="smelt-amount" min="1" max="10" value="1" style="padding: 5px; border: 1px solid #ddd; border-radius: 3px;">
+                                    </div>
+                                    <button id="confirm-smelt">确认融石</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="furnace-control-item">
+                        <button id="make-alloy">合金</button>
+                        <div class="furnace-dropdown alloy-dropdown" id="alloy-dropdown" style="display: none;">
+                            <div class="dropdown-content">
+                                <div class="dropdown-header">选择合金</div>
+                                <div class="dropdown-body">
+                                    <select id="alloy-type"></select>
+                                    <div class="alloy-info" id="alloy-info" style="margin-top: 10px; padding: 10px; background-color: #f9f9f9; border-radius: 3px; border: 1px solid #ddd;">
+                                        <div class="alloy-info-header">合金属性</div>
+                                        <div class="alloy-info-body" id="alloy-info-body">
+                                            <p>请选择一个合金</p>
+                                        </div>
+                                    </div>
+                                    <div class="alloy-amount" style="margin-top: 10px;">
+                                        <label>制作数量:</label>
+                                        <input type="number" id="alloy-amount" min="1" max="10" value="1" style="padding: 5px; border: 1px solid #ddd; border-radius: 3px;">
+                                    </div>
+                                    <button id="confirm-alloy" style="margin-top: 10px;">制作合金</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
-        </div>
 
-        <!-- 制作系统 -->
-        <div class="crafting">
-            <h2>制作系统</h2>
-            <div class="crafting-items">
-                <button id="craft-cart">制作矿车 (铁矿20, 50金币)</button>
-                <button id="craft-headlight">制作头灯 (铁矿100, 铜矿10, 1000金币)</button>
-                <button id="craft-backpack">制作扩充背包</button>
-                <button id="craft-furnace">制作熔炉 (石矿20)</button>
+            <!-- 制作系统 -->
+            <div class="crafting">
+                <h2>制作系统</h2>
+                <div class="crafting-items">
+                    <button id="craft-cart">制作矿车 (铁矿20, 50金币)</button>
+                    <button id="craft-headlight">制作头灯 (铁矿100, 铜矿10, 1000金币)</button>
+                    <div class="crafting-control-item">
+                        <button id="craft-backpack">制作扩充背包</button>
+                        <div class="crafting-dropdown backpack-dropdown" id="backpack-dropdown" style="display: none;">
+                            <div class="dropdown-content">
+                                <div class="dropdown-header">选择扩充背包</div>
+                                <div class="dropdown-body">
+                                    <select id="backpack-type"></select>
+                                    <div class="backpack-info" id="backpack-info" style="margin-top: 10px; padding: 10px; background-color: #f9f9f9; border-radius: 3px; border: 1px solid #ddd;">
+                                        <div class="backpack-info-header">背包属性</div>
+                                        <div class="backpack-info-body" id="backpack-info-body">
+                                            <p>请选择一个扩充背包</p>
+                                        </div>
+                                    </div>
+                                    <button id="confirm-craft-backpack" style="margin-top: 10px;">制作</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <button id="craft-furnace">制作熔炉 (石矿20)</button>
+                </div>
             </div>
         </div>
     </div>
