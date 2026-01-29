@@ -28,11 +28,11 @@ body {
 }
 
 .player-info {
-    grid-column: 1 / 3;
+    grid-column: 1 / 2;
 }
 
 .tools-info {
-    grid-column: 1 / 3;
+    grid-column: 2 / 3;
 }
 
 .minerals, .backpack, .furnace, .crafting {
@@ -50,8 +50,21 @@ body {
     grid-column: 1 / 2;
 }
 
-.furnace, .crafting {
+.furnace-container {
     grid-column: 2 / 3;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.furnace {
+    width: 100%; /* 填满宽度，与矿物列表对齐 */
+    margin: 0;
+}
+
+.crafting {
+    width: 100%; /* 填满宽度，与矿物列表对齐 */
+    margin: 0;
 }
 
 h2 {
@@ -387,7 +400,109 @@ h3 {
     width: 60px;
 }
 
-.furnace-controls, .crafting-items {
+.furnace-controls {
+    display: flex;
+    flex-direction: row;
+    gap: 10px;
+}
+
+.furnace-control-item {
+    position: relative;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.furnace-control-item button {
+    width: 100%;
+    padding: 10px;
+    text-align: center;
+}
+
+.furnace-dropdown, .crafting-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    margin-top: 5px;
+    padding: 10px;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    z-index: 1000;
+}
+
+.crafting-control-item {
+    position: relative;
+    width: 100%;
+    margin-bottom: 10px;
+}
+
+.crafting-control-item button {
+    width: 100%;
+    padding: 10px;
+    text-align: center;
+}
+
+.furnace-container {
+    position: relative;
+    grid-column: 2 / 3;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    min-height: 300px;
+}
+
+.dropdown-content {
+    padding: 10px;
+}
+
+.dropdown-header {
+    font-weight: bold;
+    margin-bottom: 10px;
+    color: #333;
+}
+
+.dropdown-body {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.dropdown-item {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.dropdown-item label {
+    font-size: 0.9em;
+    color: #666;
+}
+
+.dropdown-item select {
+    padding: 5px;
+    border: 1px solid #ddd;
+    border-radius: 3px;
+}
+
+#confirm-smelt, #confirm-alloy {
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    padding: 8px 15px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 0.9em;
+    transition: background-color 0.2s ease;
+}
+
+#confirm-smelt:hover, #confirm-alloy:hover {
+    background-color: #45a049;
+}
+
+.crafting-items {
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -681,6 +796,12 @@ h3 {
     .save-controls {
         flex-direction: column;
         align-items: stretch;
+        gap: 5px;
+    }
+    
+    /* 优化熔炉控件按钮 */
+    .furnace-controls {
+        flex-direction: column;
         gap: 5px;
     }
     
