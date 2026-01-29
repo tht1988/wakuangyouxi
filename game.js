@@ -315,23 +315,27 @@ function generateMineralGrid() {
         const mineralEl = document.createElement('div');
         mineralEl.className = 'mineral';
         mineralEl.dataset.name = mineral.name;
-        const pickaxeBonus = Math.min(0.4, gameData.tools.pickaxe.level * 0.05);
+        // 采矿锄加速效果：每级减少6%的采矿时间，最高减少40%
+        const pickaxeBonus = Math.min(0.4, gameData.tools.pickaxe.level * 0.06);
         const actualTime = mineral.baseTime * (1 - pickaxeBonus);
         const canMine = gameData.player.level >= mineral.minLevel && 
                        (!mineral.toolReq || gameData.tools.pickaxe.level >= mineral.toolReq);
         const isCurrentlyMining = continuousMining && currentContinuousMineral === mineral.name;
         let continuousBtnText = '';
         let continuousBtnDisabled = !canMine;
-        const isContinuousUnlocked = gameData.miningCount[mineral.name] >= 10;
+        const isContinuousUnlocked = gameData.tools.pickaxe.level >= 5;
         if (isCurrentlyMining) {
             continuousBtnText = '停止连续开采';
             continuousBtnDisabled = false;
-        } else if (isContinuousUnlocked) {
+        } else if (isContinuousUnlocked && canMine) {
             continuousBtnText = '连续开采 (已解锁)';
             continuousBtnDisabled = false;
+        } else if (isContinuousUnlocked) {
+            continuousBtnText = '连续开采 (等级不足)';
+            continuousBtnDisabled = true;
         } else {
-            continuousBtnText = `连续开采 (${gameData.miningCount[mineral.name] || 0}/10)`;
-            continuousBtnDisabled = !canMine || (gameData.miningCount[mineral.name] || 0) < 10;
+            continuousBtnText = `连续开采 (需要采矿锄5级)`;
+            continuousBtnDisabled = !canMine || gameData.tools.pickaxe.level < 5;
         }
         let dropsHTML = '';
         if (mineral.drops) {
@@ -344,11 +348,34 @@ function generateMineralGrid() {
             });
             dropsHTML += '</div>';
         }
+        
+        // 添加经验值信息
+        let expHTML = `<div class="mineral-exp">经验值: ${mineral.exp}</div>`;
+        
+        // 添加合金配方掉落几率信息
+        let recipeHTML = '';
+        switch (mineral.name) {
+            case '铁矿':
+                recipeHTML = '<div class="mineral-recipe">合金配方: 铜铁合金配方 (10%)</div>';
+                break;
+            case '钴矿':
+                recipeHTML = '<div class="mineral-recipe">合金配方: 铜钴合金配方 (1%)</div>';
+                break;
+            case '镍矿':
+                recipeHTML = '<div class="mineral-recipe">合金配方: 铜镍合金配方 (0.1%)</div>';
+                break;
+            case '银矿':
+                recipeHTML = '<div class="mineral-recipe">合金配方: 铜银合金配方 (0.01%)</div>';
+                break;
+        }
+        
         mineralEl.innerHTML = `
             <div class="mineral-name">${mineral.name}</div>
             <div class="mineral-level">需求等级: ${mineral.minLevel}+</div>
             ${dropsHTML}
-            <div class="mineral-time">开采时间: ${actualTime.toFixed(1)}秒</div>
+            ${expHTML}
+            ${recipeHTML}
+            <div class="mineral-time">开采时间: ${actualTime.toFixed(2)}秒</div>
             <div class="mineral-price">价格: ${mineral.price}金币</div>
             <button class="mine-btn" ${!canMine || isCurrentlyMining ? 'disabled' : ''}>开采</button>
             <button class="continuous-mine-btn" ${continuousBtnDisabled ? 'disabled' : ''}>${continuousBtnText}</button>
@@ -683,24 +710,34 @@ function mineMineral(mineralName) {
     progressFill.style.width = '0%';
     mineBtn.disabled = true;
     continuousBtn.disabled = true;
-    const pickaxeBonus = Math.min(0.4, gameData.tools.pickaxe.level * 0.05);
+    const pickaxeBonus = Math.min(0.4, gameData.tools.pickaxe.level * 0.06);
     const actualTime = mineral.baseTime * (1 - pickaxeBonus);
     let elapsed = 0;
     const interval = 100;
-    countdown.textContent = `${actualTime.toFixed(1)}s`;
+    countdown.textContent = `${actualTime.toFixed(2)}s`;
     const miningInterval = setInterval(() => {
         elapsed += interval;
         const progress = Math.min(100, (elapsed / (actualTime * 1000)) * 100);
         const remaining = Math.max(0, actualTime - (elapsed / 1000));
         progressFill.style.width = `${progress}%`;
-        countdown.textContent = `${remaining.toFixed(1)}s`;
+        countdown.textContent = `${remaining.toFixed(2)}s`;
         if (progress >= 100) {
             clearInterval(miningInterval);
             progressContainer.style.display = 'none';
             mineBtn.disabled = false;
-            const isContinuousUnlocked = gameData.miningCount[mineral.name] >= 10;
-            continuousBtn.disabled = !isContinuousUnlocked;
-            continuousBtn.textContent = isContinuousUnlocked ? '连续开采 (已解锁)' : `连续开采 (${gameData.miningCount[mineral.name] || 0}/10)`;
+            const isContinuousUnlocked = gameData.tools.pickaxe.level >= 5;
+            const canMine = gameData.player.level >= mineral.minLevel && 
+                           (!mineral.toolReq || gameData.tools.pickaxe.level >= mineral.toolReq);
+            if (isContinuousUnlocked && canMine) {
+                continuousBtn.disabled = false;
+                continuousBtn.textContent = '连续开采 (已解锁)';
+            } else if (isContinuousUnlocked) {
+                continuousBtn.disabled = true;
+                continuousBtn.textContent = '连续开采 (等级不足)';
+            } else {
+                continuousBtn.disabled = true;
+                continuousBtn.textContent = `连续开采 (需要采矿锄5级)`;
+            }
             completeMining(mineral);
         }
     }, interval);
@@ -711,6 +748,65 @@ let currentContinuousMineral = null;
 let continuousMiningInterval = null;
 let continuousProgressInterval = null;
 let continuousElapsedTime = 0;
+
+// 监听页面可见性变化
+document.addEventListener('visibilitychange', function() {
+    if (document.hidden) {
+        // 页面进入后台，记录当前时间戳
+        localStorage.setItem('miningGameBackgroundTime', Date.now().toString());
+    } else {
+        // 页面回到前台，计算经过的时间
+        const backgroundTime = localStorage.getItem('miningGameBackgroundTime');
+        if (backgroundTime) {
+            const elapsedTime = (Date.now() - parseInt(backgroundTime)) / 1000;
+            // 处理经过的时间，更新游戏状态
+            handleBackgroundTime(elapsedTime);
+            // 清除存储的时间戳
+            localStorage.removeItem('miningGameBackgroundTime');
+        }
+    }
+});
+
+// 处理后台经过的时间
+function handleBackgroundTime(elapsedTime) {
+    // 检查是否有正在进行的采矿
+    if (continuousMining && currentContinuousMineral) {
+        const mineral = minerals.find(m => m.name === currentContinuousMineral);
+        if (mineral) {
+            // 计算加速后的采矿时间
+            const pickaxeBonus = Math.min(0.4, gameData.tools.pickaxe.level * 0.06);
+            const actualTime = mineral.baseTime * (1 - pickaxeBonus);
+            
+            // 计算在后台完成的采矿次数
+            const completedMines = Math.floor(elapsedTime / actualTime);
+            
+            // 执行完成的采矿次数
+            for (let i = 0; i < completedMines && continuousMining; i++) {
+                completeMining(mineral);
+            }
+            
+            // 计算剩余时间，更新当前采矿进度
+            const remainingTime = elapsedTime % actualTime;
+            if (remainingTime > 0) {
+                // 更新当前采矿进度
+                continuousElapsedTime = remainingTime * 1000; // 转换为毫秒
+                const progress = Math.min(100, (continuousElapsedTime / (actualTime * 1000)) * 100);
+                const remaining = Math.max(0, actualTime - remainingTime);
+                
+                // 更新UI
+                const mineralEl = document.querySelector(`[data-name="${currentContinuousMineral}"]`);
+                if (mineralEl) {
+                    const progressFill = mineralEl.querySelector('.progress-fill');
+                    const countdown = mineralEl.querySelector('.countdown');
+                    if (progressFill && countdown) {
+                        progressFill.style.width = `${progress}%`;
+                        countdown.textContent = `${remaining.toFixed(2)}s`;
+                    }
+                }
+            }
+        }
+    }
+}
 
 function continuousMine(mineralName) {
     const mineral = minerals.find(m => m.name === mineralName);
@@ -731,31 +827,109 @@ function continuousMine(mineralName) {
         alert('临时背包中有物品，请先处理临时背包中的物品！');
         return;
     }
+    // 检查等级限制
+    const canMine = gameData.player.level >= mineral.minLevel && 
+                   (!mineral.toolReq || gameData.tools.pickaxe.level >= mineral.toolReq);
+    if (!canMine) {
+        alert('等级不足，无法连续开采此矿物！');
+        return;
+    }
+    // 检查采矿锄等级
+    if (gameData.tools.pickaxe.level < 5) {
+        alert('采矿锄等级不足，无法使用连续开采！');
+        return;
+    }
     continuousMining = true;
     currentContinuousMineral = mineralName;
     continuousElapsedTime = 0;
     mineBtn.disabled = true;
     continuousBtn.textContent = '停止连续开采';
     progressContainer.style.display = 'block';
-    const pickaxeBonus = Math.min(0.4, gameData.tools.pickaxe.level * 0.05);
+    const pickaxeBonus = Math.min(0.4, gameData.tools.pickaxe.level * 0.06);
     const actualTime = mineral.baseTime * (1 - pickaxeBonus);
     const interval = 100;
     progressFill.style.width = '0%';
-    countdown.textContent = `${actualTime.toFixed(1)}s`;
+    countdown.textContent = `${actualTime.toFixed(2)}s`;
     continuousProgressInterval = setInterval(() => {
         continuousElapsedTime += interval;
         const progress = Math.min(100, (continuousElapsedTime / (actualTime * 1000)) * 100);
         const remaining = Math.max(0, actualTime - (continuousElapsedTime / 1000));
         progressFill.style.width = `${progress}%`;
-        countdown.textContent = `${remaining.toFixed(1)}s`;
+        countdown.textContent = `${remaining.toFixed(2)}s`;
     }, interval);
+    // 定义一个函数来处理连续采矿
+    function startNextMining() {
+        const currentMineral = minerals.find(m => m.name === currentContinuousMineral);
+        if (currentMineral && continuousMining) {
+            // 重新计算加速效果，确保等级提升后效果立即生效
+            const pickaxeBonus = Math.min(0.4, gameData.tools.pickaxe.level * 0.06);
+            const currentActualTime = currentMineral.baseTime * (1 - pickaxeBonus);
+            
+            // 设置下一次采矿的间隔
+            continuousMiningInterval = setInterval(() => {
+                // 再次检查continuousMining状态，确保采矿没有被停止
+                if (continuousMining) {
+                    const updatedMineral = minerals.find(m => m.name === currentContinuousMineral);
+                    if (updatedMineral) {
+                        completeMining(updatedMineral);
+                        continuousElapsedTime = 0;
+                        
+                        // 重新获取矿物元素，确保引用是最新的
+                        const updatedMineralEl = document.querySelector(`[data-name="${currentContinuousMineral}"]`);
+                        if (updatedMineralEl) {
+                            const updatedProgressFill = updatedMineralEl.querySelector('.progress-fill');
+                            const updatedCountdown = updatedMineralEl.querySelector('.countdown');
+                            if (updatedProgressFill && updatedCountdown) {
+                                updatedProgressFill.style.width = '0%';
+                                
+                                // 重新计算加速效果，因为工具等级可能在两次采矿之间发生变化
+                                const updatedPickaxeBonus = Math.min(0.4, gameData.tools.pickaxe.level * 0.06);
+                                const updatedActualTime = updatedMineral.baseTime * (1 - updatedPickaxeBonus);
+                                updatedCountdown.textContent = `${updatedActualTime.toFixed(2)}s`;
+                            }
+                        }
+                        
+                        // 清除当前间隔
+                        clearInterval(continuousMiningInterval);
+                        
+                        // 递归调用，继续下一次采矿
+                        startNextMining();
+                    } else {
+                        stopContinuousMining();
+                    }
+                } else {
+                    clearInterval(continuousMiningInterval);
+                }
+            }, currentActualTime * 1000);
+        } else {
+            stopContinuousMining();
+        }
+    }
+    
+    // 初始设置连续采矿间隔
     continuousMiningInterval = setInterval(() => {
         const currentMineral = minerals.find(m => m.name === currentContinuousMineral);
-        if (currentMineral) {
+        if (currentMineral && continuousMining) {
+            // 执行第一次采矿
             completeMining(currentMineral);
             continuousElapsedTime = 0;
-            progressFill.style.width = '0%';
-            countdown.textContent = `${actualTime.toFixed(1)}s`;
+            
+            // 重新获取矿物元素，确保引用是最新的
+            const updatedMineralEl = document.querySelector(`[data-name="${currentContinuousMineral}"]`);
+            if (updatedMineralEl) {
+                const updatedProgressFill = updatedMineralEl.querySelector('.progress-fill');
+                const updatedCountdown = updatedMineralEl.querySelector('.countdown');
+                if (updatedProgressFill && updatedCountdown) {
+                    updatedProgressFill.style.width = '0%';
+                    updatedCountdown.textContent = `${actualTime.toFixed(2)}s`;
+                }
+            }
+            
+            // 清除初始间隔
+            clearInterval(continuousMiningInterval);
+            
+            // 开始下一次采矿
+            startNextMining();
         } else {
             stopContinuousMining();
         }
@@ -783,14 +957,22 @@ function stopContinuousMining() {
         const continuousBtn = mineralEl.querySelector('.continuous-mine-btn');
         progressContainer.style.display = 'none';
         mineBtn.disabled = false;
-        const isContinuousUnlocked = gameData.miningCount[mineralName] >= 10;
-        if (isContinuousUnlocked) {
+        const isContinuousUnlocked = gameData.tools.pickaxe.level >= 5;
+        const mineral = minerals.find(m => m.name === mineralName);
+        const canMine = mineral && (gameData.player.level >= mineral.minLevel && 
+                           (!mineral.toolReq || gameData.tools.pickaxe.level >= mineral.toolReq));
+        if (isContinuousUnlocked && canMine) {
+            continuousBtn.disabled = false;
             continuousBtn.textContent = `连续开采 (已解锁)`;
+        } else if (isContinuousUnlocked) {
+            continuousBtn.disabled = true;
+            continuousBtn.textContent = `连续开采 (等级不足)`;
         } else {
-            continuousBtn.textContent = `连续开采 (${gameData.miningCount[mineralName] || 0}/10)`;
+            continuousBtn.disabled = true;
+            continuousBtn.textContent = `连续开采 (需要采矿锄5级)`;
         }
-        continuousBtn.disabled = false;
     }
+    // 停止连续采矿后更新矿物网格，确保开采时间的显示是最新的
     generateMineralGrid();
 }
 
@@ -844,8 +1026,8 @@ function completeMining(mineral) {
         if (hasEnoughItem('煤矿', 1)) {
             // 消耗1煤矿
             consumeItem('煤矿', 1);
-            // 矿车每5级提升1个采矿数量
-            const cartBonus = Math.floor(gameData.tools.cart.level / 5);
+            // 矿车初始采矿数量+1，每5级再提升1个采矿数量
+            const cartBonus = 1 + Math.floor(gameData.tools.cart.level / 5);
             baseAmount = 1 + cartBonus;
         } else {
             // 煤矿不足，自动停用矿车
@@ -995,7 +1177,7 @@ function completeMining(mineral) {
     // 矿车额外矿物经验（只有当矿车激活时才计算）
     let cartBonus = 0;
     if (gameData.tools.cart && gameData.tools.cart.crafted && gameData.tools.cart.active) {
-        cartBonus = Math.floor(gameData.tools.cart.level / 5);
+        cartBonus = 1 + Math.floor(gameData.tools.cart.level / 5);
         totalExp += mineral.exp * cartBonus;
     }
     
@@ -1035,7 +1217,9 @@ function completeMining(mineral) {
     updateUI();
     updateBackpackDisplay();
     updateMessages();
+    // 只有在非连续采矿时才更新矿物网格，避免连续采矿过程中丢失元素引用
     if (!continuousMining) {
+        // 每次采矿完成后都更新矿物网格，确保开采时间的显示是最新的
         generateMineralGrid();
     }
     saveGame();
@@ -1263,6 +1447,10 @@ function upgradeTool(toolType) {
     // 更新UI
     updateUI();
     updateBackpackDisplay();
+    // 只有在非连续采矿时才更新矿物网格，避免连续采矿过程中丢失元素引用
+    if (!continuousMining) {
+        generateMineralGrid();
+    }
     
     // 添加升级消息
     addMessage(`${toolName}升级到 ${nextLevel} 级！`);
@@ -1737,6 +1925,63 @@ function organizeBackpack() {
     addMessage('背包整理完成！');
 }
 
+// 更新背包属性显示
+function updateBackpackInfo(type) {
+    const backpackInfoBody = document.getElementById('backpack-info-body');
+    if (!backpackInfoBody) return;
+    
+    if (!type) {
+        backpackInfoBody.innerHTML = '<p>请选择一个扩充背包</p>';
+        return;
+    }
+    
+    const backpackData = backpackExpansions[type];
+    if (!backpackData) {
+        backpackInfoBody.innerHTML = '<p>无效的背包类型</p>';
+        return;
+    }
+    
+    // 构建背包属性HTML
+    let materialsHTML = '';
+    for (const [material, amount] of Object.entries(backpackData.materials)) {
+        materialsHTML += `${material}×${amount} `;
+    }
+    
+    const backpackInfoHTML = `
+        <div class="backpack-name">${backpackData.name}</div>
+        <div class="backpack-description">${backpackData.description}</div>
+        <div class="backpack-materials">材料：${materialsHTML}</div>
+    `;
+    
+    backpackInfoBody.innerHTML = backpackInfoHTML;
+}
+
+// 填充背包类型选择下拉菜单
+function populateBackpackTypes() {
+    const backpackTypeSelect = document.getElementById('backpack-type');
+    if (!backpackTypeSelect) return;
+    
+    // 清空现有选项
+    backpackTypeSelect.innerHTML = '';
+    
+    // 添加背包类型选项
+    for (const [type, data] of Object.entries(backpackExpansions)) {
+        const option = document.createElement('option');
+        option.value = type;
+        option.textContent = data.name;
+        backpackTypeSelect.appendChild(option);
+    }
+    
+    // 初始更新背包属性
+    updateBackpackInfo('棉布包');
+    
+    // 添加事件监听器，当选择变化时更新属性
+    backpackTypeSelect.onchange = function() {
+        const selectedType = this.value;
+        updateBackpackInfo(selectedType);
+    };
+}
+
 function openBackpackCraftPanel() {
     let panelHTML = '<h3>制作背包扩充</h3><div class="craft-expansion-list">';
     for (const [type, data] of Object.entries(backpackExpansions)) {
@@ -1957,15 +2202,86 @@ function addEventListeners() {
         }
     });
     document.getElementById('craft-furnace').addEventListener('click', craftFurnace);
-    document.getElementById('craft-backpack').addEventListener('click', openBackpackCraftPanel);
-    document.getElementById('smelt-stone').addEventListener('click', smeltStone);
+    // 显示/隐藏背包扩充下拉菜单
+    document.getElementById('craft-backpack').addEventListener('click', () => {
+        const backpackDropdown = document.getElementById('backpack-dropdown');
+        // 切换背包扩充下拉菜单的显示状态
+        backpackDropdown.style.display = backpackDropdown.style.display === 'none' ? 'block' : 'none';
+        // 填充背包类型选择
+        populateBackpackTypes();
+    });
+    
+    // 确认制作背包扩充
+    document.getElementById('confirm-craft-backpack').addEventListener('click', () => {
+        const backpackTypeSelect = document.getElementById('backpack-type');
+        const selectedType = backpackTypeSelect.value;
+        if (selectedType) {
+            craftBackpackExpansion(selectedType);
+        }
+        // 隐藏下拉菜单
+        document.getElementById('backpack-dropdown').style.display = 'none';
+    });
+    // 显示/隐藏融石下拉菜单
+    document.getElementById('smelt-stone').addEventListener('click', () => {
+        if (!gameData.furnace.crafted) {
+            alert('请先制作熔炉！');
+            return;
+        }
+        const smeltDropdown = document.getElementById('smelt-dropdown');
+        const alloyDropdown = document.getElementById('alloy-dropdown');
+        // 隐藏合金下拉菜单
+        alloyDropdown.style.display = 'none';
+        // 切换融石下拉菜单的显示状态
+        smeltDropdown.style.display = smeltDropdown.style.display === 'none' ? 'block' : 'none';
+        // 填充融石数量选择
+        populateSmeltStoneAmounts();
+    });
+    
+    // 显示/隐藏合金下拉菜单
     document.getElementById('make-alloy').addEventListener('click', () => {
         const requiredLevel = 10;
         if (gameData.player.level < requiredLevel) {
             alert(`等级不足！需要${requiredLevel}级才能制作合金`);
-        } else {
-            openAlloyCraftPanel();
+            return;
         }
+        if (!gameData.furnace.crafted) {
+            alert('请先制作熔炉！');
+            return;
+        }
+        const smeltDropdown = document.getElementById('smelt-dropdown');
+        const alloyDropdown = document.getElementById('alloy-dropdown');
+        // 隐藏融石下拉菜单
+        smeltDropdown.style.display = 'none';
+        // 切换合金下拉菜单的显示状态
+        alloyDropdown.style.display = alloyDropdown.style.display === 'none' ? 'block' : 'none';
+        // 填充合金类型选择
+        populateAlloyTypes();
+    });
+    
+    // 确认融石
+    document.getElementById('confirm-smelt').addEventListener('click', () => {
+        const smeltAmountInput = document.getElementById('smelt-amount');
+        const amount = parseInt(smeltAmountInput.value) || 1;
+        if (amount > 0) {
+            smeltStone(amount);
+        }
+        // 无论是否成功，都隐藏下拉菜单
+        document.getElementById('smelt-dropdown').style.display = 'none';
+    });
+    
+    // 确认合金
+    document.getElementById('confirm-alloy').addEventListener('click', () => {
+        const alloyTypeSelect = document.getElementById('alloy-type');
+        const alloyAmountInput = document.getElementById('alloy-amount');
+        const selectedAlloy = alloyTypeSelect.value;
+        const amount = parseInt(alloyAmountInput.value);
+        if (selectedAlloy && amount > 0) {
+            makeAlloy(selectedAlloy, amount);
+        } else {
+            alert('请选择合金类型并输入制作数量');
+        }
+        // 无论是否成功，都隐藏下拉菜单
+        document.getElementById('alloy-dropdown').style.display = 'none';
     });
     document.getElementById('save-btn').addEventListener('click', () => {
         saveGame();
@@ -2314,13 +2630,22 @@ function updateFurnaceUI() {
     const craftFurnaceBtn = document.getElementById('craft-furnace');
     const upgradeFurnaceBtn = document.getElementById('upgrade-furnace');
     if (!upgradeFurnaceBtn) {
-        const furnaceContainer = document.querySelector('.furnace');
-        const furnaceControls = furnaceContainer.querySelector('.furnace-controls');
-        const upgradeContainer = document.createElement('div');
-        upgradeContainer.className = 'furnace-upgrade';
-        upgradeContainer.innerHTML = '<button id="upgrade-furnace">升级熔炉</button>';
-        furnaceContainer.appendChild(upgradeContainer);
-        document.getElementById('upgrade-furnace').addEventListener('click', upgradeFurnace);
+        const furnaceLevel = document.getElementById('furnace-level');
+        if (furnaceLevel) {
+            const upgradeBtn = document.createElement('button');
+            upgradeBtn.id = 'upgrade-furnace';
+            upgradeBtn.textContent = '升级熔炉';
+            upgradeBtn.style.marginLeft = '10px';
+            upgradeBtn.style.padding = '2px 8px';
+            upgradeBtn.style.fontSize = '0.8em';
+            upgradeBtn.style.backgroundColor = '#4CAF50';
+            upgradeBtn.style.color = 'white';
+            upgradeBtn.style.border = 'none';
+            upgradeBtn.style.borderRadius = '3px';
+            upgradeBtn.style.cursor = 'pointer';
+            furnaceLevel.parentNode.insertBefore(upgradeBtn, furnaceLevel.nextSibling);
+            upgradeBtn.addEventListener('click', upgradeFurnace);
+        }
     }
     if (gameData.furnace.crafted) {
         smeltBtn.disabled = false;
@@ -2339,9 +2664,19 @@ function updateFurnaceUI() {
                 }
                 upgradeBtn.textContent = `升级熔炉到${nextLevel}级 (需要: ${materialsText})`;
                 upgradeBtn.disabled = false;
+                upgradeBtn.style.backgroundColor = '#4CAF50';
+                upgradeBtn.style.color = 'white';
+                upgradeBtn.style.border = 'none';
+                upgradeBtn.style.borderRadius = '3px';
+                upgradeBtn.style.cursor = 'pointer';
             } else {
                 upgradeBtn.textContent = '熔炉已达到最高等级';
                 upgradeBtn.disabled = true;
+                upgradeBtn.style.backgroundColor = '#cccccc';
+                upgradeBtn.style.color = 'white';
+                upgradeBtn.style.border = 'none';
+                upgradeBtn.style.borderRadius = '3px';
+                upgradeBtn.style.cursor = 'not-allowed';
             }
         }
     } else {
@@ -2354,19 +2689,153 @@ function updateFurnaceUI() {
         if (upgradeBtn) {
             upgradeBtn.textContent = '需要先制作熔炉';
             upgradeBtn.disabled = true;
+            upgradeBtn.style.backgroundColor = '#cccccc';
+            upgradeBtn.style.color = 'white';
+            upgradeBtn.style.border = 'none';
+            upgradeBtn.style.borderRadius = '3px';
+            upgradeBtn.style.cursor = 'not-allowed';
         }
     }
 }
 
-function smeltStone() {
+// 更新融石属性显示
+function updateSmeltInfo(amount = 1) {
+    const smeltInfoBody = document.getElementById('smelt-info-body');
+    if (!smeltInfoBody) return;
+    
+    // 获取背包中的石矿数量
+    let stoneCount = 0;
+    for (const itemName of Object.keys(gameData.backpack.items)) {
+        const baseItemName = itemName.split('_')[0];
+        if (baseItemName === '石矿') {
+            stoneCount += gameData.backpack.items[itemName];
+        }
+    }
+    
+    // 计算融石所需材料
+    const stoneCost = 10 * amount;
+    const coalCost = 1 * amount;
+    const limeOutput = 1 * amount;
+    
+    // 构建融石属性HTML
+    const smeltInfoHTML = `
+        <div class="smelt-materials">原料数量：石矿${stoneCount}个</div>
+        <div class="smelt-cost">材料：石矿*${stoneCost} 煤矿*${coalCost}</div>
+        <div class="smelt-output">产出：石灰*${limeOutput}</div>
+    `;
+    
+    smeltInfoBody.innerHTML = smeltInfoHTML;
+}
+
+// 填充融石数量选择
+function populateSmeltStoneAmounts() {
+    // 初始更新融石属性
+    updateSmeltInfo(1);
+    
+    // 添加制作数量输入框的事件监听器
+    const smeltAmountInput = document.getElementById('smelt-amount');
+    if (smeltAmountInput) {
+        smeltAmountInput.onchange = function() {
+            const inputAmount = parseInt(this.value) || 1;
+            updateSmeltInfo(inputAmount);
+        };
+    }
+}
+
+// 填充合金类型选择下拉菜单
+function populateAlloyTypes() {
+    const alloyTypeSelect = document.getElementById('alloy-type');
+    if (!alloyTypeSelect) return;
+    
+    // 清空现有选项
+    alloyTypeSelect.innerHTML = '';
+    
+    // 添加已解锁的合金选项
+    for (const [alloyName, alloyData] of Object.entries(alloyRecipes)) {
+        if (hasAlloyRecipe(alloyName)) {
+            const option = document.createElement('option');
+            option.value = alloyName;
+            option.textContent = alloyName;
+            alloyTypeSelect.appendChild(option);
+        }
+    }
+    
+    // 移除旧的事件监听器，避免累积
+    alloyTypeSelect.onchange = null;
+    
+    // 添加合金类型选择的事件监听器
+    alloyTypeSelect.onchange = updateAlloyInfo;
+    
+    // 初始更新合金属性
+    updateAlloyInfo();
+}
+
+// 更新合金属性显示
+function updateAlloyInfo() {
+    const alloyTypeSelect = document.getElementById('alloy-type');
+    const alloyInfoBody = document.getElementById('alloy-info-body');
+    if (!alloyTypeSelect || !alloyInfoBody) return;
+    
+    const selectedAlloy = alloyTypeSelect.value;
+    if (!selectedAlloy) {
+        alloyInfoBody.innerHTML = '<p>请选择一个合金</p>';
+        return;
+    }
+    
+    const alloyData = alloyRecipes[selectedAlloy];
+    if (!alloyData) {
+        alloyInfoBody.innerHTML = '<p>无效的合金类型</p>';
+        return;
+    }
+    
+    // 获取合金所需等级
+    const requiredLevel = getRequiredLevelForAlloy(selectedAlloy);
+    
+    // 获取合金配方出处
+    let recipeSource = '';
+    switch (selectedAlloy) {
+        case '铜铁合金':
+            recipeSource = '挖铁矿随机获得';
+            break;
+        case '铜钴合金':
+            recipeSource = '挖钴矿随机获得';
+            break;
+        case '铜镍合金':
+            recipeSource = '挖镍矿随机获得';
+            break;
+        case '铜银合金':
+            recipeSource = '挖银矿随机获得';
+            break;
+        default:
+            recipeSource = '未知';
+    }
+    
+    // 构建合金属性HTML
+    let materialsHTML = '';
+    for (const [material, amount] of Object.entries(alloyData.materials)) {
+        materialsHTML += `${material}×${amount} `;
+    }
+    
+    const alloyInfoHTML = `
+        <div class="alloy-name">${selectedAlloy}</div>
+        <div class="alloy-materials">材料：${materialsHTML}</div>
+        <div class="alloy-level">需要等级：${requiredLevel}</div>
+        <div class="alloy-source">配方出处：${recipeSource}</div>
+        <div class="alloy-description">${alloyData.description}</div>
+    `;
+    
+    alloyInfoBody.innerHTML = alloyInfoHTML;
+}
+
+function smeltStone(amount = 1) {
     if (!gameData.furnace.crafted) {
         alert('请先制作熔炉！');
         return;
     }
     const furnaceLevel = gameData.furnace.level;
-    let stoneCost = 10;
-    let coalCost = 1;
-    let limeOutput = 1;
+    let stoneCost = 10 * amount;
+    let coalCost = 1 * amount;
+    let limeOutput = 1 * amount;
     
     if (furnaceLevel >= 2) {
         coalCost *= 0.9;
@@ -2430,6 +2899,136 @@ function smeltStone() {
     addMessage(message);
     updateBackpackDisplay();
     updateMessages();
+    saveGame();
+}
+
+// 制作指定类型的合金
+function makeAlloy(alloyName, amount = 1) {
+    if (!gameData.furnace.crafted) {
+        alert('请先制作熔炉！');
+        return;
+    }
+    
+    const requiredLevel = getRequiredLevelForAlloy(alloyName);
+    if (gameData.player.level < requiredLevel) {
+        alert(`等级不足！需要${requiredLevel}级才能制作${alloyName}`);
+        return;
+    }
+    
+    const alloyData = alloyRecipes[alloyName];
+    if (!alloyData) {
+        alert('无效的合金类型！');
+        return;
+    }
+    
+    // 检查材料是否足够
+    for (const [material, materialAmount] of Object.entries(alloyData.materials)) {
+        const totalAmount = materialAmount * amount;
+        if (!hasEnoughItem(material, totalAmount)) {
+            alert(`材料不足！需要${material}${totalAmount}`);
+            return;
+        }
+    }
+    
+    // 消耗材料
+    for (const [material, materialAmount] of Object.entries(alloyData.materials)) {
+        const totalAmount = materialAmount * amount;
+        consumeItem(material, totalAmount);
+    }
+    
+    // 计算合金经验值：两个材料的经验总和再加上150%，乘以制作数量
+    let totalExp = 0;
+    for (const [material, materialAmount] of Object.entries(alloyData.materials)) {
+        const mineral = minerals.find(m => m.name === material);
+        if (mineral) {
+            totalExp += mineral.exp * materialAmount;
+        }
+    }
+    // 加上150%的加成
+    const baseAlloyExp = Math.floor(totalExp * 2.5); // 100% + 150% = 250%
+    const totalAlloyExp = baseAlloyExp * amount;
+    
+    // 给玩家和工具添加经验
+    gameData.player.exp += totalAlloyExp;
+    
+    // 只有当工具经验值未满时才添加经验值
+    let pickaxeGainedExp = 0;
+    if (gameData.tools.pickaxe.level < 50) {
+        const pickaxeNextExp = gameData.tools.pickaxe.nextExp || 50;
+        if (gameData.tools.pickaxe.exp < pickaxeNextExp) {
+            gameData.tools.pickaxe.exp += totalAlloyExp;
+            pickaxeGainedExp = totalAlloyExp;
+        }
+    }
+    
+    let cartGainedExp = 0;
+    if (gameData.tools.cart.crafted && gameData.tools.cart.level < 50) {
+        const cartNextExp = gameData.tools.cart.nextExp || 50;
+        if (gameData.tools.cart.exp < cartNextExp) {
+            gameData.tools.cart.exp += totalAlloyExp;
+            cartGainedExp = totalAlloyExp;
+        }
+    }
+    
+    let headlightGainedExp = 0;
+    if (gameData.tools.headlight.crafted && gameData.tools.headlight.level < 50) {
+        const headlightNextExp = gameData.tools.headlight.nextExp || 50;
+        if (gameData.tools.headlight.exp < headlightNextExp) {
+            gameData.tools.headlight.exp += totalAlloyExp;
+            headlightGainedExp = totalAlloyExp;
+        }
+    }
+    addGainedExp(totalAlloyExp);
+    checkLevelUp();
+    
+    // 制作合金
+    for (let i = 0; i < amount; i++) {
+        addToBackpack(alloyName);
+    }
+    
+    // 生成消耗材料的消息
+    let consumeMessage = '';
+    for (const [material, materialAmount] of Object.entries(alloyData.materials)) {
+        consumeMessage += `${material}-${materialAmount * amount}, `;
+    }
+    consumeMessage = consumeMessage.slice(0, -2);
+    
+    // 生成工具经验消息
+    let toolExpMessage = '';
+    const pickaxeNextExp = gameData.tools.pickaxe.nextExp || 50;
+    if (gameData.tools.pickaxe.exp < pickaxeNextExp && gameData.tools.pickaxe.level < 50) {
+        toolExpMessage += `采矿锄经验*${totalAlloyExp}, `;
+    }
+    
+    if (gameData.tools.cart && gameData.tools.cart.crafted) {
+        const cartNextExp = gameData.tools.cart.nextExp || 50;
+        if (gameData.tools.cart.exp < cartNextExp && gameData.tools.cart.level < 50) {
+            toolExpMessage += `矿车经验*${totalAlloyExp}, `;
+        }
+    }
+    
+    if (gameData.tools.headlight && gameData.tools.headlight.crafted) {
+        const headlightNextExp = gameData.tools.headlight.nextExp || 50;
+        if (gameData.tools.headlight.exp < headlightNextExp && gameData.tools.headlight.level < 50) {
+            toolExpMessage += `头灯经验*${totalAlloyExp}, `;
+        }
+    }
+    
+    toolExpMessage = toolExpMessage.slice(0, -2);
+    
+    // 生成完整消息
+    let fullMessage = `合金制作成功！获得${alloyName}×${amount}，${consumeMessage}`;
+    if (toolExpMessage) {
+        fullMessage += `，${toolExpMessage}`;
+    }
+    fullMessage += `，经验*${totalAlloyExp}！`;
+    
+    addMessage(fullMessage);
+    
+    updateBackpackDisplay();
+    updateMessages();
+    updateUI(); // 更新UI以显示经验值变化
+    saveGame();
 }
 
 function getFuelReduction(level) {
