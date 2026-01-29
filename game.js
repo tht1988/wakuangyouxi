@@ -323,7 +323,9 @@ function generateMineralGrid() {
         const isCurrentlyMining = continuousMining && currentContinuousMineral === mineral.name;
         let continuousBtnText = '';
         let continuousBtnDisabled = !canMine;
-        const isContinuousUnlocked = gameData.tools.pickaxe.level >= 5;
+        // 连续采矿解锁条件：等级限制是前提，单一矿物10次采矿解锁或5级采矿锄解锁（满足其中一个即可）
+        const miningCount = gameData.miningCount[mineral.name] || 0;
+        const isContinuousUnlocked = gameData.tools.pickaxe.level >= 5 || miningCount >= 10;
         if (isCurrentlyMining) {
             continuousBtnText = '停止连续开采';
             continuousBtnDisabled = false;
@@ -334,8 +336,8 @@ function generateMineralGrid() {
             continuousBtnText = '连续开采 (等级不足)';
             continuousBtnDisabled = true;
         } else {
-            continuousBtnText = `连续开采 (需要采矿锄5级)`;
-            continuousBtnDisabled = !canMine || gameData.tools.pickaxe.level < 5;
+            continuousBtnText = `连续开采 (需要采矿锄5级或开采该矿物10次)`;
+            continuousBtnDisabled = !canMine || (gameData.tools.pickaxe.level < 5 && miningCount < 10);
         }
         let dropsHTML = '';
         if (mineral.drops) {
@@ -834,9 +836,10 @@ function continuousMine(mineralName) {
         alert('等级不足，无法连续开采此矿物！');
         return;
     }
-    // 检查采矿锄等级
-    if (gameData.tools.pickaxe.level < 5) {
-        alert('采矿锄等级不足，无法使用连续开采！');
+    // 检查连续采矿解锁条件：采矿锄5级或开采该矿物10次（满足其中一个即可）
+    const miningCount = gameData.miningCount[mineral.name] || 0;
+    if (gameData.tools.pickaxe.level < 5 && miningCount < 10) {
+        alert('连续开采未解锁，需要采矿锄5级或开采该矿物10次！');
         return;
     }
     continuousMining = true;
