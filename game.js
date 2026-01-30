@@ -1058,17 +1058,33 @@ function completeMining(mineral) {
     // 矿车加成：增加采矿数量，消耗燃料
     let baseAmount = 1;
     if (gameData.tools.cart && gameData.tools.cart.crafted && gameData.tools.cart.active) {
-        // 检查燃料舱是否有足够的燃料
-        if (gameData.tools.cart.currentFuel > 0) {
-            // 消耗1点燃料
-            gameData.tools.cart.currentFuel -= 1;
-            // 矿车初始采矿数量+1，每5级再提升1个采矿数量
-            const cartBonus = 1 + Math.floor(gameData.tools.cart.level / 5);
-            baseAmount = 1 + cartBonus;
+        const fuelType = gameData.tools.cart.fuelType || 'coal';
+        
+        if (fuelType === 'coal') {
+            // 使用煤矿：直接消耗背包中的煤矿
+            if (hasEnoughItem('煤矿', 1)) {
+                consumeItem('煤矿', 1);
+                // 矿车初始采矿数量+1，每5级再提升1个采矿数量
+                const cartBonus = 1 + Math.floor(gameData.tools.cart.level / 5);
+                baseAmount = 1 + cartBonus;
+            } else {
+                // 煤矿不足，自动停用矿车
+                gameData.tools.cart.active = false;
+                addMessage('煤矿不足，矿车已自动停止使用！请添加煤矿。');
+            }
         } else {
-            // 燃料不足，自动停用矿车
-            gameData.tools.cart.active = false;
-            addMessage('燃料舱燃料不足，矿车已自动停止使用！请添加燃料。');
+            // 使用高级燃料：消耗燃料舱中的燃料次数
+            if (gameData.tools.cart.currentFuel > 0) {
+                // 消耗1点燃料
+                gameData.tools.cart.currentFuel -= 1;
+                // 矿车初始采矿数量+1，每5级再提升1个采矿数量
+                const cartBonus = 1 + Math.floor(gameData.tools.cart.level / 5);
+                baseAmount = 1 + cartBonus;
+            } else {
+                // 燃料不足，自动停用矿车
+                gameData.tools.cart.active = false;
+                addMessage('燃料舱燃料不足，矿车已自动停止使用！请添加高级燃料。');
+            }
         }
     }
     
@@ -1577,13 +1593,25 @@ function getToolDescription() {
         if (!gameData.tools.headlight.crafted || !gameData.tools.headlight.active) {
             return { current: 0, total: 0 };
         }
-        const now = Date.now();
-        const lastConsume = gameData.tools.headlight.lastGoldConsume || now;
-        const timeSinceLast = now - lastConsume;
-        const currentTimeLeft = Math.max(0, 30000 - timeSinceLast);
-        const goldCount = gameData.player.gold;
-        const totalTimeLeft = Math.floor(goldCount / 10) * 30;
-        return { current: currentTimeLeft, total: totalTimeLeft };
+        
+        // 确保头灯属性完整
+        if (!gameData.tools.headlight.fuelType) gameData.tools.headlight.fuelType = 'gold';
+        if (!gameData.tools.headlight.batteryEnergy) gameData.tools.headlight.batteryEnergy = 0;
+        if (!gameData.tools.headlight.lastGoldConsume) gameData.tools.headlight.lastGoldConsume = Date.now();
+        
+        if (gameData.tools.headlight.fuelType === 'battery') {
+            // 使用电池时，返回电池能量
+            return { current: gameData.tools.headlight.batteryEnergy * 1000, total: gameData.tools.headlight.batteryEnergy * 1000 };
+        } else {
+            // 使用金币时，计算剩余时间
+            const now = Date.now();
+            const lastConsume = gameData.tools.headlight.lastGoldConsume || now;
+            const timeSinceLast = now - lastConsume;
+            const currentTimeLeft = Math.max(0, 30000 - timeSinceLast);
+            const goldCount = gameData.player.gold;
+            const totalTimeLeft = Math.floor(goldCount / 10) * 30;
+            return { current: currentTimeLeft, total: totalTimeLeft };
+        }
     }
     
     const cartUsesLeft = getCartUsesLeft();
@@ -1599,20 +1627,38 @@ function getToolDescription() {
         },
         cart: {
             name: '矿车',
-            description: '增加采矿数量，消耗燃料舱中的燃料',
+            description: '增加采矿数量，消耗燃料',
             current: gameData.tools.cart.crafted ? `当前效果: 采矿数量+${Math.floor(gameData.tools.cart.level / 5)}个，使用${gameData.tools.cart.fuelType === 'fuel' ? '高级燃料' : '煤矿'}作为燃料` : '未制作',
             next: gameData.tools.cart.crafted ? (gameData.tools.cart.level < 50 ? `下一级: 采矿数量+${Math.floor((gameData.tools.cart.level + 1) / 5)}个` : '已达到最高等级') : '制作后获得效果',
             upgrade: gameData.tools.cart.crafted && gameData.tools.cart.level < 50 ? `升级需求: ${getNextLevelRequirements('cart')}` : '',
-            usesLeft: gameData.tools.cart.crafted ? `燃料舱: ${gameData.tools.cart.currentFuel || 0}/${gameData.tools.cart.fuelCapacity || 50} (${gameData.tools.cart.fuelType === 'fuel' ? '高级燃料' : '煤矿'})` : '',
-            fuelInfo: gameData.tools.cart.crafted ? `${gameData.tools.cart.fuelType === 'fuel' ? '高级燃料提供50次消耗' : '煤矿提供1次消耗'}` : ''
+            usesLeft: gameData.tools.cart.crafted ? (gameData.tools.cart.fuelType === 'fuel' ? `燃料舱: ${gameData.tools.cart.currentFuel || 0}/${gameData.tools.cart.fuelCapacity || 50}（剩余${gameData.tools.cart.currentFuel || 0}次使用）` : (() => {
+                let coalCount = 0;
+                // 计算背包中的煤矿数量
+                for (const [itemName, count] of Object.entries(gameData.backpack.items)) {
+                    const baseName = itemName.split('_')[0];
+                    if (baseName === '煤矿') {
+                        coalCount += count;
+                    }
+                }
+                // 计算临时背包中的煤矿数量
+                for (const [itemName, count] of Object.entries(gameData.tempBackpack.items)) {
+                    const baseName = itemName.split('_')[0];
+                    if (baseName === '煤矿') {
+                        coalCount += count;
+                    }
+                }
+                return `背包煤矿: ${coalCount}个（剩余${coalCount}次使用）`;
+            })()) : '',
+            fuelInfo: gameData.tools.cart.crafted ? `${gameData.tools.cart.fuelType === 'fuel' ? '高级燃料提供50次消耗' : '每次采矿消耗1个煤矿'}` : ''
         },
         headlight: {
             name: '头灯',
-            description: '增加高一级矿物发现几率，每30秒消耗10金币',
-            current: gameData.tools.headlight.crafted ? `当前效果: 高一级矿物几率+${10 + gameData.tools.headlight.level * 1}%` : '未制作',
+            description: '增加高一级矿物发现几率，消耗燃料',
+            current: gameData.tools.headlight.crafted ? `当前效果: 高一级矿物几率+${10 + gameData.tools.headlight.level * 1}%，使用${gameData.tools.headlight.fuelType === 'battery' ? '电池' : '金币'}作为燃料` : '未制作',
             next: gameData.tools.headlight.crafted ? (gameData.tools.headlight.level < 50 ? `下一级: 高一级矿物几率+${10 + (gameData.tools.headlight.level + 1) * 1}%` : '已达到最高等级') : '制作后获得效果',
             upgrade: gameData.tools.headlight.crafted && gameData.tools.headlight.level < 50 ? `升级需求: ${getNextLevelRequirements('headlight')}` : '',
-            timeLeft: gameData.tools.headlight.crafted && gameData.tools.headlight.active ? `剩余时间: ${(headlightTime.current / 1000).toFixed(0)}秒，总可用: ${headlightTime.total}秒` : ''
+            timeLeft: gameData.tools.headlight.crafted && gameData.tools.headlight.active ? (gameData.tools.headlight.fuelType === 'battery' ? `电池能量: ${Math.round(gameData.tools.headlight.batteryEnergy || 0)}秒` : `剩余时间: ${(headlightTime.current / 1000).toFixed(0)}秒，总可用: ${headlightTime.total}秒`) : '',
+            fuelInfo: gameData.tools.headlight.crafted ? `${gameData.tools.headlight.fuelType === 'battery' ? '1个电池提供300秒能量' : '每30秒消耗10金币'}` : ''
         }
     };
     return descriptions;
@@ -1658,6 +1704,28 @@ function updateUI() {
             addCartFuelBtn.disabled = false;
         } else {
             addCartFuelBtn.disabled = true;
+        }
+    }
+    
+    // 设置头灯燃料类型选择
+    const headlightFuelTypeSelect = document.getElementById('headlight-fuel-type');
+    const installHeadlightBatteryBtn = document.getElementById('install-headlight-battery');
+    if (headlightFuelTypeSelect) {
+        if (gameData.tools.headlight && gameData.tools.headlight.crafted && gameData.tools.headlight.optimized) {
+            headlightFuelTypeSelect.value = gameData.tools.headlight.fuelType || 'gold';
+            headlightFuelTypeSelect.disabled = false;
+        } else {
+            headlightFuelTypeSelect.value = 'gold';
+            headlightFuelTypeSelect.disabled = true;
+        }
+    }
+    
+    // 设置安装电池按钮状态
+    if (installHeadlightBatteryBtn) {
+        if (gameData.tools.headlight && gameData.tools.headlight.crafted && gameData.tools.headlight.optimized) {
+            installHeadlightBatteryBtn.disabled = false;
+        } else {
+            installHeadlightBatteryBtn.disabled = true;
         }
     }
     
@@ -2256,6 +2324,14 @@ function addEventListeners() {
     
     document.getElementById('toggle-headlight').addEventListener('click', () => {
         if (gameData.tools.headlight && gameData.tools.headlight.crafted) {
+            if (!gameData.tools.headlight.active) {
+                // 恢复使用时，更新时间戳
+                if (gameData.tools.headlight.fuelType === 'battery') {
+                    gameData.tools.headlight.lastBatteryUpdate = Date.now();
+                } else {
+                    gameData.tools.headlight.lastGoldConsume = Date.now();
+                }
+            }
             gameData.tools.headlight.active = !gameData.tools.headlight.active;
             addMessage(gameData.tools.headlight.active ? '头灯已恢复使用！' : '头灯已暂停使用！');
             updateUI();
@@ -2379,8 +2455,23 @@ function addEventListeners() {
         }
     });
     
+    // 头灯燃料类型选择事件监听器
+    document.getElementById('headlight-fuel-type').addEventListener('change', function() {
+        if (gameData.tools.headlight && gameData.tools.headlight.crafted && gameData.tools.headlight.optimized) {
+            gameData.tools.headlight.fuelType = this.value;
+            addMessage(`头灯燃料类型已切换为${this.value === 'gold' ? '金币' : '电池'}！`);
+            updateMessages();
+            saveGame();
+        } else {
+            alert('头灯尚未优化！');
+            // 重置选择
+            this.value = 'gold';
+        }
+    });
+    
     // 添加燃料按钮事件监听器
     document.getElementById('add-cart-fuel').addEventListener('click', addCartFuel);
+    document.getElementById('install-headlight-battery').addEventListener('click', installHeadlightBattery);
     document.getElementById('upgrade-headlight').addEventListener('click', () => upgradeTool('headlight'));
     
     // 临时背包按钮
@@ -3547,6 +3638,18 @@ function ensureGameDataIntegrity() {
         }
         if (gameData.tools.headlight.optimized === undefined) {
             gameData.tools.headlight.optimized = false;
+        }
+        if (gameData.tools.headlight.fuelType === undefined) {
+            gameData.tools.headlight.fuelType = 'gold';
+        }
+        if (gameData.tools.headlight.batteryEnergy === undefined) {
+            gameData.tools.headlight.batteryEnergy = 0;
+        }
+        if (gameData.tools.headlight.maxBatteryEnergy === undefined) {
+            gameData.tools.headlight.maxBatteryEnergy = 300;
+        }
+        if (gameData.tools.headlight.lastBatteryUpdate === undefined) {
+            gameData.tools.headlight.lastBatteryUpdate = Date.now();
         }
     }
     // 确保矿车属性完整
@@ -4844,6 +4947,186 @@ document.addEventListener('DOMContentLoaded', function() {
         refreshShopBtn.addEventListener('click', manualRefreshShop);
     }
 });
+
+// 安装电池到头灯电池仓
+function installHeadlightBattery() {
+    if (gameData.tools.headlight && gameData.tools.headlight.crafted && gameData.tools.headlight.optimized) {
+        // 确保头灯属性完整
+        if (!gameData.tools.headlight.fuelType) gameData.tools.headlight.fuelType = 'gold';
+        if (!gameData.tools.headlight.batteryEnergy) gameData.tools.headlight.batteryEnergy = 0;
+        if (!gameData.tools.headlight.maxBatteryEnergy) gameData.tools.headlight.maxBatteryEnergy = 300;
+        if (!gameData.tools.headlight.lastBatteryUpdate) gameData.tools.headlight.lastBatteryUpdate = Date.now();
+        
+        // 检查背包中是否有电池
+        if (hasEnoughItem('电池', 1)) {
+            // 计算可以添加的电池能量
+            const energyNeeded = gameData.tools.headlight.maxBatteryEnergy - gameData.tools.headlight.batteryEnergy;
+            
+            if (energyNeeded > 0) {
+                // 消耗1个电池
+                consumeItem('电池', 1);
+                
+                // 1个电池提供300秒能量
+                let energyToAdd = 300;
+                
+                // 更新电池能量
+                gameData.tools.headlight.batteryEnergy = Math.min(gameData.tools.headlight.batteryEnergy + energyToAdd, gameData.tools.headlight.maxBatteryEnergy);
+                gameData.tools.headlight.lastBatteryUpdate = Date.now();
+                
+                // 恢复头灯使用状态
+                if (!gameData.tools.headlight.active) {
+                    gameData.tools.headlight.active = true;
+                    addMessage('头灯已恢复使用！');
+                }
+                
+                addMessage(`成功安装电池到头灯电池仓！当前能量：${gameData.tools.headlight.batteryEnergy}/${gameData.tools.headlight.maxBatteryEnergy}秒`);
+                updateMessages();
+                updateUI();
+                saveGame();
+            } else {
+                addMessage('电池仓能量已满，无法安装更多电池！');
+                updateMessages();
+            }
+        } else {
+            addMessage('背包中没有电池！');
+            updateMessages();
+        }
+    } else if (!gameData.tools.headlight || !gameData.tools.headlight.crafted) {
+        alert('头灯尚未制作！');
+    } else if (!gameData.tools.headlight.optimized) {
+        alert('头灯尚未优化，无法安装电池！');
+    }
+}
+
+// 更新工具的倒计时和进度条
+function updateToolProgress() {
+    // 更新头灯
+    if (gameData.tools.headlight && gameData.tools.headlight.crafted && gameData.tools.headlight.active) {
+        // 确保头灯属性完整
+        if (!gameData.tools.headlight.fuelType) gameData.tools.headlight.fuelType = 'gold';
+        if (!gameData.tools.headlight.batteryEnergy) gameData.tools.headlight.batteryEnergy = 0;
+        if (!gameData.tools.headlight.lastGoldConsume) gameData.tools.headlight.lastGoldConsume = Date.now();
+        if (!gameData.tools.headlight.lastBatteryUpdate) gameData.tools.headlight.lastBatteryUpdate = Date.now();
+        
+        if (gameData.tools.headlight.fuelType === 'battery') {
+            // 更新电池能量
+            const now = Date.now();
+            const timeSinceLast = now - gameData.tools.headlight.lastBatteryUpdate;
+            gameData.tools.headlight.batteryEnergy = Math.max(0, gameData.tools.headlight.batteryEnergy - (timeSinceLast / 1000));
+            gameData.tools.headlight.lastBatteryUpdate = now;
+            
+            // 检查电池能量是否耗尽
+            if (gameData.tools.headlight.batteryEnergy <= 0) {
+                gameData.tools.headlight.active = false;
+                addMessage('电池能量耗尽，头灯已自动停止使用！');
+                updateMessages();
+                updateUI();
+                saveGame();
+            }
+        }
+    }
+    
+    // 更新矿车
+    if (gameData.tools.cart && gameData.tools.cart.crafted && gameData.tools.cart.active) {
+        // 矿车的燃料消耗已经在采矿时处理
+        // 这里只需要确保状态正确
+    }
+}
+
+// 更新工具的UI元素
+function updateToolUI() {
+    // 更新头灯UI
+    if (gameData.tools.headlight && gameData.tools.headlight.crafted && gameData.tools.headlight.active) {
+        // 确保头灯属性完整
+        if (!gameData.tools.headlight.fuelType) gameData.tools.headlight.fuelType = 'gold';
+        if (!gameData.tools.headlight.batteryEnergy) gameData.tools.headlight.batteryEnergy = 0;
+        if (!gameData.tools.headlight.lastGoldConsume) gameData.tools.headlight.lastGoldConsume = Date.now();
+        if (!gameData.tools.headlight.lastBatteryUpdate) gameData.tools.headlight.lastBatteryUpdate = Date.now();
+        if (!gameData.tools.headlight.maxBatteryEnergy) gameData.tools.headlight.maxBatteryEnergy = 300;
+        
+        // 更新UI
+        const headlightCountdown = document.getElementById('headlight-fuel-countdown');
+        const headlightProgress = document.getElementById('headlight-fuel-progress');
+        if (headlightCountdown && headlightProgress) {
+            if (gameData.tools.headlight.fuelType === 'battery') {
+                headlightCountdown.textContent = `${Math.round(gameData.tools.headlight.batteryEnergy)}秒`;
+                const progressPercentage = (gameData.tools.headlight.batteryEnergy / gameData.tools.headlight.maxBatteryEnergy) * 100;
+                headlightProgress.style.width = `${Math.max(0, progressPercentage)}%`;
+            } else {
+                const now = Date.now();
+                const lastConsume = gameData.tools.headlight.lastGoldConsume || now;
+                const timeSinceLast = now - lastConsume;
+                const currentTimeLeft = Math.max(0, 30000 - timeSinceLast);
+                const goldCount = gameData.player.gold;
+                const totalTimeLeft = Math.floor(goldCount / 10) * 30;
+                headlightCountdown.textContent = `${Math.round(currentTimeLeft / 1000)}秒 / 总可用: ${totalTimeLeft}秒`;
+                const progressPercentage = (currentTimeLeft / 30000) * 100;
+                headlightProgress.style.width = `${Math.max(0, progressPercentage)}%`;
+            }
+        }
+    } else {
+        // 头灯未激活时，重置UI
+        const headlightCountdown = document.getElementById('headlight-fuel-countdown');
+        const headlightProgress = document.getElementById('headlight-fuel-progress');
+        if (headlightCountdown && headlightProgress) {
+            headlightCountdown.textContent = '0秒';
+            headlightProgress.style.width = '0%';
+        }
+    }
+    
+    // 更新矿车UI
+    if (gameData.tools.cart && gameData.tools.cart.crafted && gameData.tools.cart.active) {
+        // 确保矿车属性完整
+        if (!gameData.tools.cart.fuelType) gameData.tools.cart.fuelType = 'coal';
+        if (!gameData.tools.cart.currentFuel) gameData.tools.cart.currentFuel = 0;
+        if (!gameData.tools.cart.fuelCapacity) gameData.tools.cart.fuelCapacity = 50;
+        
+        // 更新UI
+        const cartCountdown = document.getElementById('cart-fuel-countdown');
+        const cartProgress = document.getElementById('cart-fuel-progress');
+        if (cartCountdown && cartProgress) {
+            if (gameData.tools.cart.fuelType === 'fuel') {
+                // 高级燃料模式
+                cartCountdown.textContent = `${gameData.tools.cart.currentFuel}次`;
+                const progressPercentage = (gameData.tools.cart.currentFuel / gameData.tools.cart.fuelCapacity) * 100;
+                cartProgress.style.width = `${Math.max(0, progressPercentage)}%`;
+            } else {
+                // 煤矿模式
+                // 计算背包中的煤矿数量
+                let coalCount = 0;
+                for (const [itemName, count] of Object.entries(gameData.backpack.items)) {
+                    const baseName = itemName.split('_')[0];
+                    if (baseName === '煤矿') {
+                        coalCount += count;
+                    }
+                }
+                for (const [itemName, count] of Object.entries(gameData.tempBackpack.items)) {
+                    const baseName = itemName.split('_')[0];
+                    if (baseName === '煤矿') {
+                        coalCount += count;
+                    }
+                }
+                cartCountdown.textContent = `${coalCount}个`;
+                const progressPercentage = Math.min(100, (coalCount / 50) * 100); // 假设50个煤矿为满
+                cartProgress.style.width = `${Math.max(0, progressPercentage)}%`;
+            }
+        }
+    } else {
+        // 矿车未激活时，重置UI
+        const cartCountdown = document.getElementById('cart-fuel-countdown');
+        const cartProgress = document.getElementById('cart-fuel-progress');
+        if (cartCountdown && cartProgress) {
+            cartCountdown.textContent = '0';
+            cartProgress.style.width = '0%';
+        }
+    }
+}
+
+// 修改定时器，同时更新进度和UI
+setInterval(() => {
+    updateToolProgress();
+    updateToolUI();
+}, 1000); // 每秒更新一次
 
 window.addEventListener('DOMContentLoaded', initGame);
 
