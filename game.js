@@ -378,6 +378,20 @@ function initGame() {
         updateUI();
         console.log('游戏初始化 - 强制修复完成');
     }, 100);
+    
+    // 启动自动出售定时器，每60秒执行一次
+    startAutoSellTimer();
+}
+
+// 启动自动出售定时器
+function startAutoSellTimer() {
+    // 立即执行一次
+    executeFilter();
+    
+    // 设置定时器，每60秒执行一次
+    setInterval(() => {
+        executeFilter();
+    }, 60000);
 }
 
 function generateMineralGrid() {
