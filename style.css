@@ -277,7 +277,7 @@ h3 {
     margin-top: 10px;
 }
 
-.sell-panel, .disassemble-panel {
+.sell-panel, .disassemble-panel, .filter-panel {
     margin-top: 10px;
     padding: 10px;
     background-color: #f9f9f9;
@@ -285,7 +285,7 @@ h3 {
     display: none;
 }
 
-.sell-panel.active, .disassemble-panel.active {
+.sell-panel.active, .disassemble-panel.active, .filter-panel.active {
     display: block;
 }
 
