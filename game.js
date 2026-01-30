@@ -58,6 +58,12 @@ let gameData = {
     shop: {
         unlocked: false,
         level: 0,
+        upgradeCosts: [100000, 500000, 1000000], // 1→2级:10万, 2→3级:50万, 3→4级:100万
+        freeRefreshes: 0,
+        lastFreeRefreshTime: Date.now(),
+        neededItem: null,
+        autoPurchaseItems: [],
+        autoPurchaseDiscounts: false,
         refreshTime: 180, // 3分钟自动刷新
         currentTime: 0,
         items: [],
@@ -325,19 +331,50 @@ function calculateBackpackStats() {
 function initGame() {
     initSaveSystem();
     loadGame();
+    
+    // 强制修复所有关键状态
+    console.log('游戏初始化 - 强制修复开始');
+    
+    // 强制修复加工台状态
+    if (gameData.workshop.unlocked !== true && gameData.workshop.unlocked !== false) {
+        gameData.workshop.unlocked = false;
+        console.log('强制修复加工台状态为:', gameData.workshop.unlocked);
+    }
+    
+    // 强制修复商店状态
+    if (gameData.shop.unlocked !== true && gameData.shop.unlocked !== false) {
+        gameData.shop.unlocked = false;
+        console.log('强制修复商店状态为:', gameData.shop.unlocked);
+    }
+    
+    // 强制修复商店等级
+    if (gameData.shop.level === undefined) {
+        gameData.shop.level = 0;
+        console.log('强制修复商店等级为:', gameData.shop.level);
+    }
+    
     generateMineralGrid();
     generateBackpack();
     generateExpansionSlots();
+    
+    // 立即更新所有UI
+    updateWorkshopUI();
+    updateShopUI();
     updateUI(); // 确保UI更新，包括商店界面
     updateFurnaceUI();
     updateGainedInfo();
     updateMessages();
     updateTempBackpackDisplay();
     addEventListeners();
+    
     // 再次检查商店解锁状态，确保商店界面能够正确显示
     // 修复商店界面不显示的问题
     setTimeout(() => {
         checkShopUnlock();
+        updateWorkshopUI();
+        updateShopUI();
+        updateUI();
+        console.log('游戏初始化 - 强制修复完成');
     }, 100);
 }
 
@@ -1079,20 +1116,37 @@ function completeMining(mineral) {
             }
         } else {
             // 使用高级燃料：消耗燃料舱中的燃料次数
-            if (gameData.tools.cart.optimized && gameData.tools.cart.currentFuel > 0) {
-                // 消耗1点燃料
-                gameData.tools.cart.currentFuel -= 1;
-                // 矿车初始采矿数量+1，每5级再提升1个采矿数量
-                const cartBonus = 1 + Math.floor(gameData.tools.cart.level / 5);
-                baseAmount = 1 + cartBonus;
-            } else {
-                // 燃料不足或矿车未优化，自动停用矿车
-                gameData.tools.cart.active = false;
-                if (!gameData.tools.cart.optimized) {
-                    addMessage('矿车尚未优化！需要先在加工台优化矿车才能使用高级燃料。');
+            if (gameData.tools.cart.optimized) {
+                // 检查燃料舱中的燃料是否足够
+                if (gameData.tools.cart.currentFuel > 0) {
+                    // 消耗1点燃料
+                    gameData.tools.cart.currentFuel -= 1;
+                    // 矿车初始采矿数量+1，每5级再提升1个采矿数量
+                    const cartBonus = 1 + Math.floor(gameData.tools.cart.level / 5);
+                    baseAmount = 1 + cartBonus;
                 } else {
-                    addMessage('燃料舱燃料不足，矿车已自动停止使用！请添加高级燃料。');
+                    // 燃料舱燃料不足，尝试从背包中自动添加燃料
+                    if (hasEnoughItem('燃料', 1)) {
+                        // 消耗背包中的燃料
+                        consumeItem('燃料', 1);
+                        // 添加50点燃料到燃料舱
+                        gameData.tools.cart.currentFuel = 50;
+                        // 消耗1点燃料用于本次采矿
+                        gameData.tools.cart.currentFuel -= 1;
+                        // 矿车初始采矿数量+1，每5级再提升1个采矿数量
+                        const cartBonus = 1 + Math.floor(gameData.tools.cart.level / 5);
+                        baseAmount = 1 + cartBonus;
+                        addMessage('燃料舱燃料不足，已自动从背包中添加燃料！');
+                    } else {
+                        // 背包中也没有燃料，自动停用矿车
+                        gameData.tools.cart.active = false;
+                        addMessage('燃料舱燃料不足，背包中也没有燃料，矿车已自动停止使用！请添加燃料。');
+                    }
                 }
+            } else {
+                // 矿车未优化，自动停用矿车
+                gameData.tools.cart.active = false;
+                addMessage('矿车尚未优化！需要先在加工台优化矿车才能使用高级燃料。');
             }
         }
     }
@@ -1161,9 +1215,20 @@ function completeMining(mineral) {
         } else if (fuelType === 'battery') {
             // 使用电池作为燃料，检查电池能量
             if (!gameData.tools.headlight.batteryEnergy || gameData.tools.headlight.batteryEnergy <= 0) {
-                // 电池能量不足，自动停用头灯
-                gameData.tools.headlight.active = false;
-                addMessage('电池能量不足，头灯已自动停止使用！');
+                // 电池能量不足，尝试从背包中自动添加电池
+                if (hasEnoughItem('电池', 1)) {
+                    // 消耗背包中的电池
+                    consumeItem('电池', 1);
+                    // 添加300秒能量到电池仓
+                    gameData.tools.headlight.batteryEnergy = 300;
+                    // 更新电池更新时间
+                    gameData.tools.headlight.lastBatteryUpdate = Date.now();
+                    addMessage('电池能量不足，已自动从背包中添加电池！');
+                } else {
+                    // 背包中也没有电池，自动停用头灯
+                    gameData.tools.headlight.active = false;
+                    addMessage('电池能量不足，背包中也没有电池，头灯已自动停止使用！请添加电池。');
+                }
             }
         }
         
@@ -1892,6 +1957,28 @@ function hasEnoughItem(itemName, amount) {
         }
     }
     return total >= amount;
+}
+
+// 获取背包中物品的总数
+function getItemCount(itemName) {
+    let total = 0;
+    // 检查主背包中的物品数量
+    const itemEntries = Object.entries(gameData.backpack.items);
+    for (const [name, count] of itemEntries) {
+        const baseName = name.split('_')[0];
+        if (baseName === itemName) {
+            total += count;
+        }
+    }
+    // 检查临时背包中的物品数量
+    const tempEntries = Object.entries(gameData.tempBackpack.items);
+    for (const [name, count] of tempEntries) {
+        const baseName = name.split('_')[0];
+        if (baseName === itemName) {
+            total += count;
+        }
+    }
+    return total;
 }
 
 // 检查临时背包是否有物品
@@ -3047,12 +3134,22 @@ function updateAlloyInfo() {
         materialsHTML += `${material}×${amount} `;
     }
     
+    // 计算背包材料可制作的最大合金数量
+    let maxCraftable = Infinity;
+    for (const [material, amount] of Object.entries(alloyData.materials)) {
+        const materialCount = getItemCount(material);
+        const craftable = Math.floor(materialCount / amount);
+        maxCraftable = Math.min(maxCraftable, craftable);
+    }
+    maxCraftable = Math.max(0, maxCraftable);
+    
     const alloyInfoHTML = `
         <div class="alloy-name">${selectedAlloy}</div>
         <div class="alloy-materials">材料：${materialsHTML}</div>
         <div class="alloy-level">需要等级：${requiredLevel}</div>
         <div class="alloy-source">配方出处：${recipeSource}</div>
         <div class="alloy-description">${alloyData.description}</div>
+        <div class="alloy-craftable">可制作数量：${maxCraftable}</div>
     `;
     
     alloyInfoBody.innerHTML = alloyInfoHTML;
@@ -3587,11 +3684,39 @@ function loadGame() {
         gameData.shop.items = [];
     }
     
+    // 强制修复关键属性
+    console.log('加载前 - 加工台状态:', gameData.workshop.unlocked);
+    console.log('加载前 - 商店状态:', gameData.shop.unlocked);
+    
+    // 强制修复加工台状态
+    if (gameData.workshop.unlocked !== true && gameData.workshop.unlocked !== false) {
+        gameData.workshop.unlocked = false;
+    }
+    
+    // 强制修复商店状态
+    if (gameData.shop.unlocked !== true && gameData.shop.unlocked !== false) {
+        gameData.shop.unlocked = false;
+    }
+    
+    // 强制修复商店等级
+    if (gameData.shop.level === undefined) {
+        gameData.shop.level = 0;
+    }
+    
+    console.log('加载后 - 加工台状态:', gameData.workshop.unlocked);
+    console.log('加载后 - 商店状态:', gameData.shop.unlocked);
+    
     calculateBackpackStats();
     generateBackpack();
     generateExpansionSlots();
     updateBackpackDisplay();
     updateTempBackpackDisplay();
+    
+    // 立即检查和更新所有UI
+    updateWorkshopUI();
+    checkShopUnlock();
+    updateShopUI();
+    updateUI();
     
     // 延迟检查商店解锁状态，确保所有数据都已初始化完成
     setTimeout(() => {
@@ -3772,11 +3897,38 @@ function ensureGameDataIntegrity() {
         };
     }
     // 确保商店系统的属性存在
+    if (gameData.shop.unlocked === undefined) {
+        gameData.shop.unlocked = false;
+    }
+    if (gameData.shop.level === undefined) {
+        gameData.shop.level = 0;
+    }
+    if (gameData.shop.upgradeCosts === undefined) {
+        gameData.shop.upgradeCosts = [100000, 500000, 1000000]; // 1→2级:10万, 2→3级:50万, 3→4级:100万
+    }
+    if (gameData.shop.freeRefreshes === undefined) {
+        gameData.shop.freeRefreshes = 0;
+    }
+    if (gameData.shop.lastFreeRefreshTime === undefined) {
+        gameData.shop.lastFreeRefreshTime = Date.now();
+    }
+    if (gameData.shop.neededItem === undefined) {
+        gameData.shop.neededItem = null;
+    }
+    if (gameData.shop.autoPurchaseItems === undefined) {
+        gameData.shop.autoPurchaseItems = [];
+    }
+    if (gameData.shop.autoPurchaseDiscounts === undefined) {
+        gameData.shop.autoPurchaseDiscounts = false;
+    }
     if (gameData.shop.items === undefined) {
         gameData.shop.items = [];
     }
     if (gameData.shop.lastRefresh === undefined) {
         gameData.shop.lastRefresh = Date.now();
+    }
+    if (gameData.shop.manualRefreshCost === undefined) {
+        gameData.shop.manualRefreshCost = 1000;
     }
     if (gameData.shop.unlockedBlueprints === undefined) {
         gameData.shop.unlockedBlueprints = {
@@ -3796,6 +3948,9 @@ function ensureGameDataIntegrity() {
         };
     }
     // 确保加工台系统的属性存在
+    if (gameData.workshop.unlocked === undefined) {
+        gameData.workshop.unlocked = false;
+    }
     if (gameData.workshop.batterySlot === undefined) {
         gameData.workshop.batterySlot = 0;
     }
@@ -3872,6 +4027,11 @@ function initDefaultGameData() {
         shop: {
             unlocked: false,
             level: 0,
+            upgradeCosts: [100000, 500000, 1000000], // 1→2级:10万, 2→3级:50万, 3→4级:100万
+            freeRefreshes: 0,
+            lastFreeRefreshTime: Date.now(),
+            neededItem: null,
+            autoPurchaseItems: [],
             refreshTime: 180, // 3分钟自动刷新
             currentTime: 0,
             items: [],
@@ -3972,18 +4132,33 @@ function updateDisassemblePanel() {
 
 // 商店系统相关函数
 function checkShopUnlock() {
+    console.log('检查商店解锁 - 当前状态:', gameData.shop.unlocked);
+    
+    // 强制修复商店状态
+    if (gameData.shop.unlocked !== true && gameData.shop.unlocked !== false) {
+        gameData.shop.unlocked = false;
+        console.log('强制修复商店状态为:', gameData.shop.unlocked);
+    }
+    
     if (gameData.player.level >= 10 && !gameData.shop.unlocked) {
         gameData.shop.unlocked = true;
+        console.log('解锁商店');
         updateShopUI();
         refreshShopItems();
         addMessage('商店已解锁！现在可以购买各种物品和图纸。');
         updateMessages();
     }
+    
+    // 确保商店解锁后有初始物品
+    if (gameData.shop.unlocked && (!gameData.shop.items || gameData.shop.items.length === 0)) {
+        console.log('商店已解锁但无物品，刷新物品');
+        refreshShopItems();
+    }
+    
     // 确保商店UI正确显示，无论商店状态是否变化
     // 修复商店界面不显示的问题
-    if (gameData.shop.unlocked) {
-        updateShopUI();
-    }
+    console.log('更新商店UI - 当前状态:', gameData.shop.unlocked);
+    updateShopUI();
 }
 
 function updateShopUI() {
@@ -3997,11 +4172,292 @@ function updateShopUI() {
     
     if (gameData.shop.unlocked) {
         shopElement.style.display = 'block';
+        
+        // 添加商店升级UI
+        const shopInfoElement = shopElement.querySelector('.shop-info');
+        if (shopInfoElement) {
+            // 检查是否已经添加了升级UI
+            let upgradeUI = shopInfoElement.querySelector('.shop-upgrade');
+            if (!upgradeUI) {
+                upgradeUI = document.createElement('div');
+                upgradeUI.className = 'shop-upgrade';
+                upgradeUI.style.marginTop = '10px';
+                upgradeUI.style.padding = '10px';
+                upgradeUI.style.backgroundColor = '#f9f9f9';
+                upgradeUI.style.borderRadius = '5px';
+                upgradeUI.style.border = '1px solid #ddd';
+                shopInfoElement.appendChild(upgradeUI);
+            }
+            
+            // 更新升级UI
+            const currentLevel = gameData.shop.level;
+            let upgradeHTML = '';
+            
+            if (currentLevel < 3) {
+                const nextLevel = currentLevel + 1;
+                // 确保upgradeCosts数组存在且有足够长度
+                if (!gameData.shop.upgradeCosts || gameData.shop.upgradeCosts.length <= currentLevel) {
+                    gameData.shop.upgradeCosts = [100000, 500000, 1000000]; // 1→2级:10万, 2→3级:50万, 3→4级:100万
+                }
+                const upgradeCost = gameData.shop.upgradeCosts[currentLevel];
+                upgradeHTML = `
+                    <div class="upgrade-info">
+                        <span>升级到${nextLevel}级需要: ${upgradeCost.toLocaleString()}金币</span>
+                        <button id="upgrade-shop" style="margin-left: 10px; padding: 5px 10px;">升级商店</button>
+                    </div>
+                `;
+            } else {
+                upgradeHTML = '<div class="upgrade-info">商店已达到最高等级</div>';
+            }
+            
+            // 添加免费刷新次数显示
+            if (currentLevel >= 1) {
+                upgradeHTML += `
+                    <div class="free-refreshes" style="margin-top: 5px;">
+                        <span>免费刷新次数: ${gameData.shop.freeRefreshes}</span>
+                        ${currentLevel >= 1 ? '<button id="use-free-refresh" style="margin-left: 10px; padding: 5px 10px;">使用免费刷新</button>' : ''}
+                    </div>
+                `;
+            }
+            
+            
+            
+            // 添加并排布局容器
+            upgradeHTML += `
+                <div class="shop-layout" style="margin-top: 15px; display: flex; gap: 10px; width: 100%;">
+                    <!-- 左侧：功能区域（宽度减少一半） -->
+                    <div class="shop-functions" style="flex: 0.5; padding: 10px; background-color: #f9f9f9; border-radius: 5px; border: 1px solid #ddd;">
+            `
+            
+            // 添加3级商店功能
+            if (currentLevel >= 2) {
+                upgradeHTML += `
+                    <div class="needed-item-section" style="margin-top: 10px;">
+                        <h4>我需要的功能</h4>
+                        <div style="margin-top: 5px;">
+                            <label for="needed-item-select">选择商品:</label>
+                            <select id="needed-item-select">
+                                <option value="">-- 请选择 --</option>
+                                <option value="加工台图纸">加工台图纸</option>
+                                <option value="电池图纸">电池图纸</option>
+                                <option value="燃料配方">燃料配方</option>
+                                <option value="棉布*100">棉布*100</option>
+                                <option value="电池*1">电池*1</option>
+                                <option value="燃料*1">燃料*1</option>
+                                <option value="木材*100">木材*100</option>
+                                <option value="金手套">金手套</option>
+                                <option value="石矿*100">石矿*100</option>
+                                <option value="煤矿*100">煤矿*100</option>
+                            </select>
+                            <button id="set-needed-item" style="margin-left: 10px; padding: 5px 10px;">设置</button>
+                        </div>
+                        <div style="margin-top: 5px; font-size: 0.9em; color: #666;">
+                            下次出现时概率增加40%，价格为300%
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // 添加4级商店功能
+            if (currentLevel >= 3) {
+                upgradeHTML += `
+                    <div class="auto-purchase-section" style="margin-top: 10px;">
+                        <h4>自动采购功能</h4>
+                        <div style="margin-top: 5px;">
+                            <label>选择物品 (最多2种):</label><br>
+                            <input type="checkbox" id="auto-item-1" value="加工台图纸"> 加工台图纸<br>
+                            <input type="checkbox" id="auto-item-2" value="电池图纸"> 电池图纸<br>
+                            <input type="checkbox" id="auto-item-3" value="燃料配方"> 燃料配方<br>
+                            <input type="checkbox" id="auto-item-4" value="棉布*100"> 棉布*100<br>
+                            <input type="checkbox" id="auto-item-5" value="电池*1"> 电池*1<br>
+                            <input type="checkbox" id="auto-item-6" value="燃料*1"> 燃料*1<br>
+                            <input type="checkbox" id="auto-item-7" value="木材*100"> 木材*100<br>
+                            <input type="checkbox" id="auto-item-8" value="金手套"> 金手套<br>
+                            <input type="checkbox" id="auto-item-9" value="石矿*100"> 石矿*100<br>
+                            <input type="checkbox" id="auto-item-10" value="煤矿*100"> 煤矿*100<br>
+                            <div style="margin-top: 10px;">
+                                <input type="checkbox" id="auto-purchase-discounts" ${gameData.shop.autoPurchaseDiscounts ? 'checked' : ''}>
+                                <label for="auto-purchase-discounts">同时购买打折优惠物品</label>
+                            </div>
+                            <button id="set-auto-purchase" style="margin-top: 10px; padding: 5px 10px;">设置自动采购</button>
+                        </div>
+                        <div style="margin-top: 5px; font-size: 0.9em; color: #666;">
+                            商店中出现非涨价物品时自动购买
+                        </div>
+                        <div style="margin-top: 5px; font-size: 0.9em; color: #333;">
+                            当前选择: ${gameData.shop.autoPurchaseItems.length > 0 ? gameData.shop.autoPurchaseItems.join(', ') : '无'}
+                        </div>
+                        <div style="margin-top: 5px; font-size: 0.9em; color: #333;">
+                            自动购买打折物品: ${gameData.shop.autoPurchaseDiscounts ? '是' : '否'}
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // 添加当前需求物品状态显示
+            if (gameData.shop.neededItem) {
+                upgradeHTML += `
+                    <div class="needed-item-status" style="margin-top: 10px; padding: 10px; background-color: #f0f8ff; border-radius: 5px; border: 1px solid #add8e6;">
+                        <h4>当前需求</h4>
+                        <div style="margin-top: 5px;">
+                            <p style="color: #0066cc;">下次出现${gameData.shop.neededItem}概率增加40%，价格为300%</p>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // 关闭左侧功能区域并添加右侧商店物品区域
+            upgradeHTML += `
+                    </div>
+                    <!-- 右侧：商店物品区域（宽度减少一半） -->
+                    <div class="shop-items-container" style="flex: 0.5; padding: 10px; background-color: #f9f9f9; border-radius: 5px; border: 1px solid #ddd;">
+                        <h4>商店物品</h4>
+                        <div id="shop-items-inline" style="margin-top: 10px;">
+                            ${renderShopItemsInline()}
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            upgradeUI.innerHTML = upgradeHTML;
+            
+            // 添加事件监听器
+            const upgradeShopBtn = document.getElementById('upgrade-shop');
+            if (upgradeShopBtn) {
+                upgradeShopBtn.addEventListener('click', upgradeShop);
+            }
+            
+            const useFreeRefreshBtn = document.getElementById('use-free-refresh');
+            if (useFreeRefreshBtn) {
+                useFreeRefreshBtn.addEventListener('click', useFreeRefresh);
+            }
+            
+            const setNeededItemBtn = document.getElementById('set-needed-item');
+            if (setNeededItemBtn) {
+                setNeededItemBtn.addEventListener('click', setNeededItem);
+            }
+            
+            const setAutoPurchaseBtn = document.getElementById('set-auto-purchase');
+            if (setAutoPurchaseBtn) {
+                setAutoPurchaseBtn.addEventListener('click', setAutoPurchase);
+            }
+            
+            // 添加购买按钮事件监听器
+            setTimeout(() => {
+                document.querySelectorAll('.buy-item').forEach(button => {
+                    button.addEventListener('click', function() {
+                        const itemName = this.getAttribute('data-item');
+                        const price = parseInt(this.getAttribute('data-price'));
+                        buyShopItem(itemName, price);
+                    });
+                });
+            }, 100);
+        }
+        
         // 直接渲染物品，避免延迟导致的闪烁
-        renderShopItems();
+        // renderShopItems(); // 移除，因为已经在新布局中内联渲染
     } else {
         shopElement.style.display = 'none';
     }
+}
+
+// 升级商店
+function upgradeShop() {
+    const currentLevel = gameData.shop.level;
+    if (currentLevel >= 3) {
+        alert('商店已达到最高等级');
+        return;
+    }
+    
+    const upgradeCost = gameData.shop.upgradeCosts[currentLevel];
+    if (gameData.player.gold < upgradeCost) {
+        alert('金币不足，无法升级商店');
+        return;
+    }
+    
+    // 扣除金币
+    gameData.player.gold -= upgradeCost;
+    
+    // 提升商店等级
+    gameData.shop.level++;
+    
+    // 显示升级成功消息
+    addMessage(`商店成功升级到${gameData.shop.level + 1}级！`);
+    
+    // 更新UI
+    updateUI();
+    updateShopUI();
+}
+
+// 使用免费刷新
+function useFreeRefresh() {
+    if (gameData.shop.freeRefreshes <= 0) {
+        alert('没有免费刷新次数');
+        return;
+    }
+    
+    // 减少免费刷新次数
+    gameData.shop.freeRefreshes--;
+    
+    // 刷新商店物品
+    refreshShopItems();
+    
+    // 显示刷新成功消息
+    addMessage('使用了一次免费刷新！');
+    
+    // 更新UI
+    updateShopUI();
+}
+
+// 设置需要的物品
+function setNeededItem() {
+    const selectElement = document.getElementById('needed-item-select');
+    const neededItem = selectElement.value;
+    
+    gameData.shop.neededItem = neededItem;
+    
+    if (neededItem) {
+        addMessage(`已设置需要的物品: ${neededItem}`);
+    } else {
+        addMessage('已取消需要的物品设置');
+    }
+    
+    // 更新UI
+    updateShopUI();
+}
+
+// 设置自动采购物品
+function setAutoPurchase() {
+    const itemCheckboxes = document.querySelectorAll('.auto-purchase-section input[type="checkbox"]:not(#auto-purchase-discounts)');
+    const discountCheckbox = document.getElementById('auto-purchase-discounts');
+    const selectedItems = [];
+    
+    itemCheckboxes.forEach(checkbox => {
+        if (checkbox.checked) {
+            selectedItems.push(checkbox.value);
+        }
+    });
+    
+    if (selectedItems.length > 2) {
+        alert('最多只能选择2种物品');
+        return;
+    }
+    
+    gameData.shop.autoPurchaseItems = selectedItems;
+    gameData.shop.autoPurchaseDiscounts = discountCheckbox ? discountCheckbox.checked : false;
+    
+    if (selectedItems.length > 0) {
+        let message = `已设置自动采购物品: ${selectedItems.join(', ')}`;
+        if (gameData.shop.autoPurchaseDiscounts) {
+            message += '，包括打折优惠物品';
+        }
+        addMessage(message);
+    } else {
+        addMessage('已取消自动采购设置');
+    }
+    
+    // 更新UI
+    updateShopUI();
 }
 
 function renderShopItems() {
@@ -4075,6 +4531,51 @@ function renderShopItems() {
     });
 }
 
+// 内联渲染商店物品（用于在功能区域旁边显示）
+function renderShopItemsInline() {
+    let html = '';
+    
+    if (gameData.shop.items.length === 0) {
+        if (gameData.shop.unlocked) {
+            html = '<p>商店暂时没有物品，请稍后再来查看。</p>';
+        } else {
+            html = '<p>商店未解锁，玩家等级达到10级后开启</p>';
+        }
+        return html;
+    }
+    
+    gameData.shop.items.forEach(item => {
+        // 检查是否是优惠产品或涨价产品
+        if (item.isDiscount) {
+            html += `
+                <div class="shop-item" style="margin-bottom: 10px; padding: 8px; background-color: #fff; border-radius: 3px; border: 1px solid #ddd;">
+                    <div class="shop-item-name" style="color: red;">${item.name} <span style="color: red;">${item.discountText}</span></div>
+                    <div class="shop-item-price" style="color: red;">价格: ${Math.floor(item.price)}金币</div>
+                    <button class="buy-item" data-item="${item.name}" data-price="${Math.floor(item.price)}" style="margin-top: 5px; padding: 3px 6px;">购买</button>
+                </div>
+            `;
+        } else if (item.isPriceIncrease) {
+            html += `
+                <div class="shop-item" style="margin-bottom: 10px; padding: 8px; background-color: #fff; border-radius: 3px; border: 1px solid #ddd;">
+                    <div class="shop-item-name" style="color: blue;">${item.name} <span style="color: blue;">${item.priceIncreaseText}</span></div>
+                    <div class="shop-item-price" style="color: blue;">价格: ${Math.floor(item.price)}金币</div>
+                    <button class="buy-item" data-item="${item.name}" data-price="${Math.floor(item.price)}" style="margin-top: 5px; padding: 3px 6px;">购买</button>
+                </div>
+            `;
+        } else {
+            html += `
+                <div class="shop-item" style="margin-bottom: 10px; padding: 8px; background-color: #fff; border-radius: 3px; border: 1px solid #ddd;">
+                    <div class="shop-item-name">${item.name}</div>
+                    <div class="shop-item-price">价格: ${Math.floor(item.price)}金币</div>
+                    <button class="buy-item" data-item="${item.name}" data-price="${Math.floor(item.price)}" style="margin-top: 5px; padding: 3px 6px;">购买</button>
+                </div>
+            `;
+        }
+    });
+    
+    return html;
+}
+
 function buyShopItem(itemName, price) {
     // 找到物品在商店列表中的索引
     const itemIndex = gameData.shop.items.findIndex(item => item.name === itemName && item.price === price);
@@ -4119,7 +4620,7 @@ function buyShopItem(itemName, price) {
         // 更新UI
         updateUI();
         updateBackpackDisplay();
-        renderShopItems(); // 确保商店UI也更新
+        updateShopUI(); // 确保商店UI也更新
         
         addMessage(`购买成功：${itemName} (${price}金币)`);
         updateMessages();
@@ -4256,13 +4757,33 @@ function refreshShopItems() {
                     // 30%的概率选择加工台图纸
                     items.push({ name: workshopBlueprint.name, price: workshopBlueprint.price });
                 } else {
-                    // 否则随机选择
-                const randomIndex = Math.floor(Math.random() * availableItems.length);
-                let selectedItem = availableItems[randomIndex];
+                    // 应用3级商店的"我需要的功能"
+                    let selectedItem = null;
+                    
+                    if (gameData.shop.level >= 2 && gameData.shop.neededItem) {
+                        // 为需要的物品增加概率
+                        const neededItem = availableItems.find(item => item.name === gameData.shop.neededItem);
+                        if (neededItem && Math.random() < 0.4) { // 40%概率选择需要的物品
+                            selectedItem = neededItem;
+                        }
+                    }
+                    
+                    // 如果没有选中需要的物品，随机选择
+                    if (!selectedItem) {
+                        const randomIndex = Math.floor(Math.random() * availableItems.length);
+                        selectedItem = availableItems[randomIndex];
+                    }
                 
                 // 为非优惠产品添加随机打折或涨价
                 let finalItem = { ...selectedItem };
-                if (!finalItem.isDiscount) {
+                
+                // 应用3级商店的价格调整
+                if (gameData.shop.level >= 2 && gameData.shop.neededItem && finalItem.name === gameData.shop.neededItem) {
+                    // 价格为300%
+                    finalItem.price = finalItem.price * 3;
+                    finalItem.isPriceIncrease = true;
+                    finalItem.priceIncreaseText = '需求价格！';
+                } else if (!finalItem.isDiscount) {
                     const randomEvent = Math.random();
                     if (randomEvent < 0.1) { // 10%几率打折
                         finalItem.price = finalItem.price * 0.5;
@@ -4344,6 +4865,98 @@ function refreshShopItems() {
     
     gameData.shop.items = items;
     gameData.shop.lastRefresh = Date.now();
+    
+    // 应用4级商店的"自动采购功能"
+    if (gameData.shop.level >= 3) {
+        const itemsToRemove = [];
+        items.forEach((item, index) => {
+            // 检查是否是非涨价物品
+            if (!item.isPriceIncrease) {
+                // 提取物品基础名称（去除数量部分）
+                let itemBaseName = item.name;
+                if (itemBaseName.includes('*')) {
+                    itemBaseName = itemBaseName.split('*')[0];
+                }
+                
+                // 检查是否是玩家选择的自动采购物品（通过基础名称匹配）
+                const isAutoPurchaseItem = gameData.shop.autoPurchaseItems.some(autoItem => {
+                    let autoBaseName = autoItem;
+                    if (autoBaseName.includes('*')) {
+                        autoBaseName = autoBaseName.split('*')[0];
+                    }
+                    return autoBaseName === itemBaseName;
+                });
+                
+                if (isAutoPurchaseItem) {
+                    // 检查是否是打折物品，如果是则需要用户开启了自动购买打折物品选项
+                    if (!item.isDiscount || gameData.shop.autoPurchaseDiscounts) {
+                        // 检查金币是否足够
+                        if (gameData.player.gold >= item.price) {
+                            // 自动购买
+                            gameData.player.gold -= item.price;
+                            
+                            // 处理物品添加
+                            let baseItemName = item.name;
+                            if (baseItemName.includes('*')) {
+                                // 处理批量物品，如"棉布*10"
+                                const [name, amountStr] = baseItemName.split('*');
+                                baseItemName = name;
+                                const amount = parseInt(amountStr);
+                                for (let i = 0; i < amount; i++) {
+                                    addToBackpack(baseItemName);
+                                }
+                            } else {
+                                // 处理单个物品
+                                addToBackpack(baseItemName);
+                            }
+                            
+                            // 记录要移除的物品索引
+                            itemsToRemove.push(index);
+                            
+                            // 显示自动购买消息
+                            addMessage(`自动购买了: ${item.name}，消耗${Math.floor(item.price)}金币`);
+                        }
+                    }
+                }
+                
+                // 自动购买所有打折产品（如果开启了该选项）
+                if (gameData.shop.autoPurchaseDiscounts && item.isDiscount && !item.isPriceIncrease && gameData.player.gold >= item.price) {
+                    // 检查该物品是否已经被标记为移除
+                    if (!itemsToRemove.includes(index)) {
+                        // 自动购买
+                        gameData.player.gold -= item.price;
+                        
+                        // 处理物品添加
+                        let baseItemName = item.name;
+                        if (baseItemName.includes('*')) {
+                            // 处理批量物品，如"棉布*10"
+                            const [name, amountStr] = baseItemName.split('*');
+                            baseItemName = name;
+                            const amount = parseInt(amountStr);
+                            for (let i = 0; i < amount; i++) {
+                                addToBackpack(baseItemName);
+                            }
+                        } else {
+                            // 处理单个物品
+                            addToBackpack(baseItemName);
+                        }
+                        
+                        // 记录要移除的物品索引
+                        itemsToRemove.push(index);
+                        
+                        // 显示自动购买消息
+                        addMessage(`自动购买了打折物品: ${item.name}，消耗${Math.floor(item.price)}金币`);
+                    }
+                }
+            }
+        });
+        
+        // 从后向前移除物品，避免索引混乱
+        itemsToRemove.sort((a, b) => b - a).forEach(index => {
+            items.splice(index, 1);
+        });
+    }
+    
     renderShopItems();
     updateShopCountdown();
 }
@@ -4363,6 +4976,24 @@ function updateShopCountdown() {
     
     const progress = (elapsed / gameData.shop.refreshTime) * 100;
     progressElement.style.width = `${Math.min(progress, 100)}%`;
+    
+    // 检查2级商店的免费刷新次数
+    if (gameData.shop.level >= 1) { // 1级商店对应等级0，2级商店对应等级1
+        const freeRefreshElapsed = (now - gameData.shop.lastFreeRefreshTime) / 1000;
+        if (freeRefreshElapsed >= 300) { // 5分钟 = 300秒
+            // 增加免费刷新次数
+            gameData.shop.freeRefreshes++;
+            
+            // 更新最后免费刷新时间
+            gameData.shop.lastFreeRefreshTime = now;
+            
+            // 显示获得免费刷新次数的消息
+            addMessage('商店自动获得了一次免费刷新次数！');
+            
+            // 更新商店UI
+            updateShopUI();
+        }
+    }
     
     if (remaining <= 0) {
         refreshShopItems();
@@ -4735,9 +5366,17 @@ function updateRecipeInfo() {
         
         if (recipe) {
             // 计算总能量需求
-            const quantityInput = document.getElementById('craft-quantity');
-            const quantity = quantityInput ? parseInt(quantityInput.value) : 1;
-            const totalEnergyRequired = recipe.energy * quantity;
+        const quantityInput = document.getElementById('craft-quantity');
+        const quantity = quantityInput ? parseInt(quantityInput.value) : 1;
+        let totalEnergyRequired;
+        if (selectedRecipe === '铜铁合金线') {
+            // 制作合金线时消耗的能量和消耗的合金数量一样多
+            const copperIronAlloyNeeded = quantity / 10;
+            totalEnergyRequired = copperIronAlloyNeeded;
+        } else {
+            // 其他物品按正常方式计算能量需求
+            totalEnergyRequired = recipe.energy * quantity;
+        }
             
             // 生成材料列表HTML
             let materialsHTML = '<ul>';
@@ -4745,13 +5384,16 @@ function updateRecipeInfo() {
                 // 特殊处理铜铁合金线的材料显示
                 if (quantity < 10) {
                     materialsHTML += `<li style="color: red">铜铁合金线每次最少制作10个！</li>`;
+                } else if (quantity % 10 !== 0) {
+                    materialsHTML += `<li style="color: red">铜铁合金线的制作数量必须是10的倍数！</li>`;
                 } else {
-                    const copperIronAlloyNeeded = Math.ceil(quantity / 10);
-                    const currentAmount = getCurrentItemCount('铜铁合金');
-                    const hasEnough = currentAmount >= copperIronAlloyNeeded;
-                    materialsHTML += `<li style="color: ${hasEnough ? 'green' : 'red'}">铜铁合金: ${copperIronAlloyNeeded} (当前: ${currentAmount})</li>`;
-                    materialsHTML += `<li style="color: blue">每10个铜铁合金线消耗1个铜铁合金</li>`;
-                }
+                const copperIronAlloyNeeded = quantity / 10;
+                const currentAmount = getCurrentItemCount('铜铁合金');
+                const hasEnough = currentAmount >= copperIronAlloyNeeded;
+                materialsHTML += `<li style="color: ${hasEnough ? 'green' : 'red'}">铜铁合金: ${copperIronAlloyNeeded} (当前: ${currentAmount})</li>`;
+                materialsHTML += `<li style="color: blue">每10个铜铁合金线消耗1个铜铁合金</li>`;
+                materialsHTML += `<li style="color: blue">消耗能量: ${copperIronAlloyNeeded} (与消耗的合金数量相同)</li>`;
+            }
             } else {
                 // 普通配方的材料显示
                 for (const [material, amount] of Object.entries(recipe.materials)) {
@@ -4793,22 +5435,35 @@ function craftWorkshopItem() {
             let actualMaterials = recipe.materials;
             
             if (selectedRecipe === '铜铁合金线') {
-                // 每次最少制作10个
+                // 每次最少制作10个，且数量必须是10的倍数
                 if (quantity < 10) {
                     addMessage('铜铁合金线每次最少制作10个！');
                     updateMessages();
                     return;
                 }
+                if (quantity % 10 !== 0) {
+                    addMessage('铜铁合金线的制作数量必须是10的倍数！');
+                    updateMessages();
+                    return;
+                }
                 
                 // 每10个铜铁合金线消耗1个铜铁合金
-                const copperIronAlloyNeeded = Math.ceil(quantity / 10);
+                const copperIronAlloyNeeded = quantity / 10;
                 actualMaterials = {
                     '铜铁合金': copperIronAlloyNeeded
                 };
             }
             
             // 检查电池能量
-            const totalEnergyRequired = recipe.energy * actualQuantity;
+            let totalEnergyRequired;
+            if (selectedRecipe === '铜铁合金线') {
+                // 制作合金线时消耗的能量和消耗的合金数量一样多
+                const copperIronAlloyNeeded = Math.ceil(quantity / 10);
+                totalEnergyRequired = copperIronAlloyNeeded;
+            } else {
+                // 其他物品按正常方式计算能量需求
+                totalEnergyRequired = recipe.energy * actualQuantity;
+            }
             if (!hasEnoughBatteryEnergy(totalEnergyRequired)) {
                 addMessage(`电池能量不足，需要${totalEnergyRequired}点能量！`);
                 updateMessages();
@@ -4851,9 +5506,7 @@ function craftWorkshopItem() {
                 }
                 
                 // 消耗电池能量
-                for (let i = 0; i < actualQuantity; i++) {
-                    consumeBatteryEnergy(recipe.energy);
-                }
+                consumeBatteryEnergy(totalEnergyRequired);
                 
                 // 添加制作的物品到背包
                 if (selectedRecipe === '优化头灯' || selectedRecipe === '优化矿车') {
@@ -5242,11 +5895,26 @@ function updateToolProgress() {
             
             // 检查电池能量是否耗尽
             if (gameData.tools.headlight.batteryEnergy <= 0) {
-                gameData.tools.headlight.active = false;
-                addMessage('电池能量耗尽，头灯已自动停止使用！');
-                updateMessages();
-                updateUI();
-                saveGame();
+                // 尝试从背包中自动添加电池
+                if (hasEnoughItem('电池', 1)) {
+                    // 消耗背包中的电池
+                    consumeItem('电池', 1);
+                    // 添加300秒能量到电池仓
+                    gameData.tools.headlight.batteryEnergy = 300;
+                    // 更新电池更新时间
+                    gameData.tools.headlight.lastBatteryUpdate = now;
+                    addMessage('电池能量耗尽，已自动从背包中添加电池！');
+                    updateMessages();
+                    updateUI();
+                    saveGame();
+                } else {
+                    // 背包中也没有电池，自动停用头灯
+                    gameData.tools.headlight.active = false;
+                    addMessage('电池能量耗尽，背包中也没有电池，头灯已自动停止使用！请添加电池。');
+                    updateMessages();
+                    updateUI();
+                    saveGame();
+                }
             }
         }
     }
