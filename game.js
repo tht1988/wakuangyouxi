@@ -1019,15 +1019,18 @@ function completeMining(mineral) {
     if (!continuousMining) {
         gameData.miningCount[mineral.name] = (gameData.miningCount[mineral.name] || 0) + 1;
     }
-    gameData.player.exp += mineral.exp;
+    // 应用金手套经验加成
+    const expWithBonus = applyGoldenGloveExpBonus(mineral.exp);
+    gameData.player.exp += expWithBonus;
     
     // 只有当工具经验值未满时才添加经验值
     let pickaxeGainedExp = 0;
     if (gameData.tools.pickaxe.level < 50) {
         const pickaxeNextExp = gameData.tools.pickaxe.nextExp || 50;
         if (gameData.tools.pickaxe.exp < pickaxeNextExp) {
-            gameData.tools.pickaxe.exp += mineral.exp;
-            pickaxeGainedExp = mineral.exp;
+            const toolExpWithBonus = applyGoldenGloveExpBonus(mineral.exp);
+            gameData.tools.pickaxe.exp += toolExpWithBonus;
+            pickaxeGainedExp = toolExpWithBonus;
         }
     }
     
@@ -1035,8 +1038,9 @@ function completeMining(mineral) {
     if (gameData.tools.cart.crafted && gameData.tools.cart.level < 50) {
         const cartNextExp = gameData.tools.cart.nextExp || 50;
         if (gameData.tools.cart.exp < cartNextExp) {
-            gameData.tools.cart.exp += mineral.exp;
-            cartGainedExp = mineral.exp;
+            const toolExpWithBonus = applyGoldenGloveExpBonus(mineral.exp);
+            gameData.tools.cart.exp += toolExpWithBonus;
+            cartGainedExp = toolExpWithBonus;
         }
     }
     
@@ -1044,12 +1048,13 @@ function completeMining(mineral) {
     if (gameData.tools.headlight.crafted && gameData.tools.headlight.level < 50) {
         const headlightNextExp = gameData.tools.headlight.nextExp || 50;
         if (gameData.tools.headlight.exp < headlightNextExp) {
-            gameData.tools.headlight.exp += mineral.exp;
-            headlightGainedExp = mineral.exp;
+            const toolExpWithBonus = applyGoldenGloveExpBonus(mineral.exp);
+            gameData.tools.headlight.exp += toolExpWithBonus;
+            headlightGainedExp = toolExpWithBonus;
         }
     }
     
-    addGainedExp(mineral.exp);
+    addGainedExp(expWithBonus);
     checkLevelUp();
     // 检查工具状态和消耗
     if (!gameData.tools.cart) gameData.tools.cart = { crafted: false, active: true, fuelType: 'coal', fuelCapacity: 50, currentFuel: 0 }; // fuelType: 'coal' 或 'fuel'
@@ -1098,28 +1103,30 @@ function completeMining(mineral) {
         addGainedMineral();
         // 为矿车额外提供的矿物添加经验
         if (i > 0) {
-            gameData.player.exp += mineral.exp;
-            addGainedExp(mineral.exp);
+            // 应用金手套经验加成
+            const bonusExp = applyGoldenGloveExpBonus(mineral.exp);
+            gameData.player.exp += bonusExp;
+            addGainedExp(bonusExp);
             
             // 只有当工具经验值未满时才添加经验值
             if (gameData.tools.pickaxe.level < 50) {
                 const pickaxeNextExp = gameData.tools.pickaxe.nextExp || 50;
                 if (gameData.tools.pickaxe.exp < pickaxeNextExp) {
-                    gameData.tools.pickaxe.exp += mineral.exp;
+                    gameData.tools.pickaxe.exp += bonusExp;
                 }
             }
             
             if (gameData.tools.cart && gameData.tools.cart.level < 50) {
                 const cartNextExp = gameData.tools.cart.nextExp || 50;
                 if (gameData.tools.cart.exp < cartNextExp) {
-                    gameData.tools.cart.exp += mineral.exp;
+                    gameData.tools.cart.exp += bonusExp;
                 }
             }
             
             if (gameData.tools.headlight && gameData.tools.headlight.level < 50) {
                 const headlightNextExp = gameData.tools.headlight.nextExp || 50;
                 if (gameData.tools.headlight.exp < headlightNextExp) {
-                    gameData.tools.headlight.exp += mineral.exp;
+                    gameData.tools.headlight.exp += bonusExp;
                 }
             }
         }
@@ -1128,22 +1135,35 @@ function completeMining(mineral) {
     // 头灯效果：增加高一级矿物发现几率
     let headlightGoldConsumed = false;
     if (gameData.tools.headlight && gameData.tools.headlight.crafted && gameData.tools.headlight.active) {
-        // 检查头灯的金币消耗状态
-        if (!gameData.tools.headlight.lastGoldConsume) {
-            gameData.tools.headlight.lastGoldConsume = Date.now();
-        }
+        // 检查燃料类型
+        const fuelType = gameData.tools.headlight.fuelType || 'gold';
         
-        // 每30秒消耗10金币
-        const now = Date.now();
-        if (now - gameData.tools.headlight.lastGoldConsume >= 30000) {
-            if (gameData.player.gold >= 10) {
-                gameData.player.gold -= 10;
-                gameData.tools.headlight.lastGoldConsume = now;
-                headlightGoldConsumed = true;
-            } else {
-                // 金币不足，自动停用头灯
+        if (fuelType === 'gold') {
+            // 使用金币作为燃料
+            // 检查头灯的金币消耗状态
+            if (!gameData.tools.headlight.lastGoldConsume) {
+                gameData.tools.headlight.lastGoldConsume = Date.now();
+            }
+            
+            // 每30秒消耗10金币
+            const now = Date.now();
+            if (now - gameData.tools.headlight.lastGoldConsume >= 30000) {
+                if (gameData.player.gold >= 10) {
+                    gameData.player.gold -= 10;
+                    gameData.tools.headlight.lastGoldConsume = now;
+                    headlightGoldConsumed = true;
+                } else {
+                    // 金币不足，自动停用头灯
+                    gameData.tools.headlight.active = false;
+                    addMessage('金币不足，头灯已自动停止使用！');
+                }
+            }
+        } else if (fuelType === 'battery') {
+            // 使用电池作为燃料，检查电池能量
+            if (!gameData.tools.headlight.batteryEnergy || gameData.tools.headlight.batteryEnergy <= 0) {
+                // 电池能量不足，自动停用头灯
                 gameData.tools.headlight.active = false;
-                addMessage('金币不足，头灯已自动停止使用！');
+                addMessage('电池能量不足，头灯已自动停止使用！');
             }
         }
         
@@ -1162,30 +1182,32 @@ function completeMining(mineral) {
                     // 为头灯额外提供的矿物添加经验
                     const higherMineralData = minerals.find(m => m.name === higherMineral);
                     if (higherMineralData) {
-                        gameData.player.exp += higherMineralData.exp;
-                        addGainedExp(higherMineralData.exp);
-                        
-                        // 只有当工具经验值未满时才添加经验值
-                        if (gameData.tools.pickaxe.level < 50) {
-                            const pickaxeNextExp = gameData.tools.pickaxe.nextExp || 50;
-                            if (gameData.tools.pickaxe.exp < pickaxeNextExp) {
-                                gameData.tools.pickaxe.exp += higherMineralData.exp;
+                        // 应用金手套经验加成
+                            const bonusExp = applyGoldenGloveExpBonus(higherMineralData.exp);
+                            gameData.player.exp += bonusExp;
+                            addGainedExp(bonusExp);
+                            
+                            // 只有当工具经验值未满时才添加经验值
+                            if (gameData.tools.pickaxe.level < 50) {
+                                const pickaxeNextExp = gameData.tools.pickaxe.nextExp || 50;
+                                if (gameData.tools.pickaxe.exp < pickaxeNextExp) {
+                                    gameData.tools.pickaxe.exp += bonusExp;
+                                }
                             }
-                        }
-                        
-                        if (gameData.tools.cart && gameData.tools.cart.level < 50) {
-                            const cartNextExp = gameData.tools.cart.nextExp || 50;
-                            if (gameData.tools.cart.exp < cartNextExp) {
-                                gameData.tools.cart.exp += higherMineralData.exp;
+                            
+                            if (gameData.tools.cart && gameData.tools.cart.level < 50) {
+                                const cartNextExp = gameData.tools.cart.nextExp || 50;
+                                if (gameData.tools.cart.exp < cartNextExp) {
+                                    gameData.tools.cart.exp += bonusExp;
+                                }
                             }
-                        }
-                        
-                        if (gameData.tools.headlight && gameData.tools.headlight.level < 50) {
-                            const headlightNextExp = gameData.tools.headlight.nextExp || 50;
-                            if (gameData.tools.headlight.exp < headlightNextExp) {
-                                gameData.tools.headlight.exp += higherMineralData.exp;
+                            
+                            if (gameData.tools.headlight && gameData.tools.headlight.level < 50) {
+                                const headlightNextExp = gameData.tools.headlight.nextExp || 50;
+                                if (gameData.tools.headlight.exp < headlightNextExp) {
+                                    gameData.tools.headlight.exp += bonusExp;
+                                }
                             }
-                        }
                     }
                 }
                 addMessage(`头灯效果：发现了 ${higherMineral}×${higherAmount}！`);
@@ -1255,6 +1277,9 @@ function completeMining(mineral) {
             }
         }
     }
+    
+    // 应用金手套经验加成到显示的经验值
+    totalExp = applyGoldenGloveExpBonus(totalExp);
     
     const obtainedDrops = [];
     if (mineral.drops) {
@@ -3166,16 +3191,19 @@ function makeAlloy(alloyName, amount = 1) {
     const baseAlloyExp = Math.floor(totalExp * 2.5); // 100% + 150% = 250%
     const totalAlloyExp = baseAlloyExp * amount;
     
+    // 应用金手套经验加成
+    const alloyExpWithBonus = applyGoldenGloveExpBonus(totalAlloyExp);
+    
     // 给玩家和工具添加经验
-    gameData.player.exp += totalAlloyExp;
+    gameData.player.exp += alloyExpWithBonus;
     
     // 只有当工具经验值未满时才添加经验值
     let pickaxeGainedExp = 0;
     if (gameData.tools.pickaxe.level < 50) {
         const pickaxeNextExp = gameData.tools.pickaxe.nextExp || 50;
         if (gameData.tools.pickaxe.exp < pickaxeNextExp) {
-            gameData.tools.pickaxe.exp += totalAlloyExp;
-            pickaxeGainedExp = totalAlloyExp;
+            gameData.tools.pickaxe.exp += alloyExpWithBonus;
+            pickaxeGainedExp = alloyExpWithBonus;
         }
     }
     
@@ -3183,8 +3211,8 @@ function makeAlloy(alloyName, amount = 1) {
     if (gameData.tools.cart.crafted && gameData.tools.cart.level < 50) {
         const cartNextExp = gameData.tools.cart.nextExp || 50;
         if (gameData.tools.cart.exp < cartNextExp) {
-            gameData.tools.cart.exp += totalAlloyExp;
-            cartGainedExp = totalAlloyExp;
+            gameData.tools.cart.exp += alloyExpWithBonus;
+            cartGainedExp = alloyExpWithBonus;
         }
     }
     
@@ -3192,11 +3220,11 @@ function makeAlloy(alloyName, amount = 1) {
     if (gameData.tools.headlight.crafted && gameData.tools.headlight.level < 50) {
         const headlightNextExp = gameData.tools.headlight.nextExp || 50;
         if (gameData.tools.headlight.exp < headlightNextExp) {
-            gameData.tools.headlight.exp += totalAlloyExp;
-            headlightGainedExp = totalAlloyExp;
+            gameData.tools.headlight.exp += alloyExpWithBonus;
+            headlightGainedExp = alloyExpWithBonus;
         }
     }
-    addGainedExp(totalAlloyExp);
+    addGainedExp(alloyExpWithBonus);
     checkLevelUp();
     
     // 制作合金
@@ -3220,20 +3248,20 @@ function makeAlloy(alloyName, amount = 1) {
     let toolExpMessage = '';
     const pickaxeNextExp = gameData.tools.pickaxe.nextExp || 50;
     if (gameData.tools.pickaxe.exp < pickaxeNextExp && gameData.tools.pickaxe.level < 50) {
-        toolExpMessage += `采矿锄经验*${totalAlloyExp}, `;
+        toolExpMessage += `采矿锄经验*${alloyExpWithBonus}, `;
     }
     
     if (gameData.tools.cart && gameData.tools.cart.crafted) {
         const cartNextExp = gameData.tools.cart.nextExp || 50;
         if (gameData.tools.cart.exp < cartNextExp && gameData.tools.cart.level < 50) {
-            toolExpMessage += `矿车经验*${totalAlloyExp}, `;
+            toolExpMessage += `矿车经验*${alloyExpWithBonus}, `;
         }
     }
     
     if (gameData.tools.headlight && gameData.tools.headlight.crafted) {
         const headlightNextExp = gameData.tools.headlight.nextExp || 50;
         if (gameData.tools.headlight.exp < headlightNextExp && gameData.tools.headlight.level < 50) {
-            toolExpMessage += `头灯经验*${totalAlloyExp}, `;
+            toolExpMessage += `头灯经验*${alloyExpWithBonus}, `;
         }
     }
     
@@ -3244,7 +3272,7 @@ function makeAlloy(alloyName, amount = 1) {
     if (toolExpMessage) {
         fullMessage += `，${toolExpMessage}`;
     }
-    fullMessage += `，经验*${totalAlloyExp}！`;
+    fullMessage += `，经验*${alloyExpWithBonus}！`;
     
     addMessage(fullMessage);
     
@@ -3581,6 +3609,9 @@ function loadGame() {
                     refreshShopItems();
                 }
             }, 2000);
+        } else if (gameData.shop.unlocked && gameData.shop.items.length > 0) {
+            // 商店已解锁且有物品，直接渲染，不刷新
+            renderShopItems();
         }
     }, 500);
 }
@@ -3616,6 +3647,13 @@ function ensureGameDataIntegrity() {
                 exp: 0,
                 nextExp: 50
             }
+        };
+    }
+    // 确保金手套属性存在
+    if (!gameData.goldenGlove) {
+        gameData.goldenGlove = {
+            active: false,
+            endTime: 0
         };
     }
     // 确保头灯有lastGoldConsume属性
@@ -3825,6 +3863,11 @@ function initDefaultGameData() {
         unlockedRecipes: {},
         miningCount: {},
         selectedMineral: null,
+        // 金手套系统
+        goldenGlove: {
+            active: false,
+            endTime: 0
+        },
         // 商店系统
         shop: {
             unlocked: false,
@@ -3995,11 +4038,30 @@ function renderShopItems() {
     gameData.shop.items.forEach(item => {
         const itemElement = document.createElement('div');
         itemElement.className = 'shop-item';
-        itemElement.innerHTML = `
-            <div class="shop-item-name">${item.name}</div>
-            <div class="shop-item-price">价格: ${item.price}金币</div>
-            <button class="buy-item" data-item="${item.name}" data-price="${item.price}">购买</button>
-        `;
+        
+        // 检查是否是优惠产品或涨价产品
+        let itemHTML = '';
+        if (item.isDiscount) {
+            itemHTML = `
+                <div class="shop-item-name" style="color: red;">${item.name} <span style="color: red;">${item.discountText}</span></div>
+                <div class="shop-item-price" style="color: red;">价格: ${Math.floor(item.price)}金币</div>
+                <button class="buy-item" data-item="${item.name}" data-price="${Math.floor(item.price)}">购买</button>
+            `;
+        } else if (item.isPriceIncrease) {
+            itemHTML = `
+                <div class="shop-item-name" style="color: blue;">${item.name} <span style="color: blue;">${item.priceIncreaseText}</span></div>
+                <div class="shop-item-price" style="color: blue;">价格: ${Math.floor(item.price)}金币</div>
+                <button class="buy-item" data-item="${item.name}" data-price="${Math.floor(item.price)}">购买</button>
+            `;
+        } else {
+            itemHTML = `
+                <div class="shop-item-name">${item.name}</div>
+                <div class="shop-item-price">价格: ${Math.floor(item.price)}金币</div>
+                <button class="buy-item" data-item="${item.name}" data-price="${Math.floor(item.price)}">购买</button>
+            `;
+        }
+        
+        itemElement.innerHTML = itemHTML;
         shopItemsElement.appendChild(itemElement);
     });
     
@@ -4049,6 +4111,11 @@ function buyShopItem(itemName, price) {
         // 从商店列表中移除购买的物品
         gameData.shop.items.splice(itemIndex, 1);
         
+        // 金手套购买后放入背包
+        if (itemName === '金手套') {
+            addToBackpack('金手套');
+        }
+        
         // 更新UI
         updateUI();
         updateBackpackDisplay();
@@ -4076,24 +4143,52 @@ function refreshShopItems() {
         { name: '加工台图纸', price: 1000, probability: 0.1, isBlueprint: true },
         { name: '电池图纸', price: 1000, probability: 0.1, isBlueprint: true },
         { name: '燃料配方', price: 1000, probability: 0.1, isBlueprint: true },
-        { name: '棉布*10', price: 40, probability: 0.2 },
-        { name: '织布*10', price: 80, probability: 0.2 },
-        { name: '粗麻布*10', price: 120, probability: 0.2 },
+        { name: '棉布*100', price: 400, probability: 0.2 },
         { name: '电池*1', price: 350, probability: 0.05 },
         { name: '燃料*1', price: 300, probability: 0.05 },
-        { name: '木材*10', price: 100, probability: 0.2 }
+        { name: '木材*100', price: 1000, probability: 0.3 },
+        { name: '金手套', price: 10000, probability: 0.2, isSpecial: true, effect: 'expBoost' }
     ];
     
-    // 添加已解锁的矿物
+    // 添加已解锁的矿物（只保留石矿和煤矿）
     minerals.forEach(mineral => {
-        if (gameData.player.level >= mineral.minLevel) {
+        if (gameData.player.level >= mineral.minLevel && (mineral.name === '石矿' || mineral.name === '煤矿')) {
             itemPool.push({
-                name: `${mineral.name}*10`,
-                price: mineral.price * 2 * 10, // 出售价值的200%，乘以数量10
+                name: `${mineral.name}*100`,
+                price: mineral.price * 2 * 100, // 出售价值的200%，乘以数量100
                 probability: 0.2
             });
         }
     });
+    
+    // 添加燃料和电池的优惠产品（10%几率）
+    if (Math.random() < 0.1) {
+        // 随机选择添加一种或两种优惠产品，但确保每种最多只添加一次
+        const addFuelDiscount = Math.random() < 0.6; // 60%几率添加燃料优惠
+        const addBatteryDiscount = Math.random() < 0.6; // 60%几率添加电池优惠
+        
+        // 检查并添加燃料优惠
+        if (addFuelDiscount) {
+            itemPool.push({
+                name: '燃料*5',
+                price: 300 * 5 * 0.5, // 300*5*50%
+                probability: 1,
+                isDiscount: true,
+                discountText: '优惠50%！'
+            });
+        }
+        
+        // 检查并添加电池优惠
+        if (addBatteryDiscount) {
+            itemPool.push({
+                name: '电池*5',
+                price: 350 * 5 * 0.5, // 350*5*50%
+                probability: 1,
+                isDiscount: true,
+                discountText: '优惠50%！'
+            });
+        }
+    }
     
     // 添加已解锁的合金
     for (const [alloyName, alloyData] of Object.entries(alloyRecipes)) {
@@ -4142,16 +4237,46 @@ function refreshShopItems() {
         });
         
         if (availableItems.length > 0) {
-            // 优先选择加工台图纸（如果可用）
-            const workshopBlueprint = availableItems.find(item => item.name === '加工台图纸');
-            if (workshopBlueprint && Math.random() < 0.3) {
-                // 30%的概率选择加工台图纸
-                items.push({ name: workshopBlueprint.name, price: workshopBlueprint.price });
+            // 优先检查是否有优惠产品
+            const discountItems = availableItems.filter(item => item.isDiscount);
+            if (discountItems.length > 0 && Math.random() < 0.5) {
+                // 50%的概率选择优惠产品
+                const randomIndex = Math.floor(Math.random() * discountItems.length);
+                const selectedItem = discountItems[randomIndex];
+                items.push({ 
+                    name: selectedItem.name, 
+                    price: selectedItem.price,
+                    isDiscount: selectedItem.isDiscount,
+                    discountText: selectedItem.discountText
+                });
             } else {
-                // 否则随机选择
+                // 优先选择加工台图纸（如果可用）
+                const workshopBlueprint = availableItems.find(item => item.name === '加工台图纸');
+                if (workshopBlueprint && Math.random() < 0.3) {
+                    // 30%的概率选择加工台图纸
+                    items.push({ name: workshopBlueprint.name, price: workshopBlueprint.price });
+                } else {
+                    // 否则随机选择
                 const randomIndex = Math.floor(Math.random() * availableItems.length);
-                const selectedItem = availableItems[randomIndex];
-                items.push({ name: selectedItem.name, price: selectedItem.price });
+                let selectedItem = availableItems[randomIndex];
+                
+                // 为非优惠产品添加随机打折或涨价
+                let finalItem = { ...selectedItem };
+                if (!finalItem.isDiscount) {
+                    const randomEvent = Math.random();
+                    if (randomEvent < 0.1) { // 10%几率打折
+                        finalItem.price = finalItem.price * 0.5;
+                        finalItem.isDiscount = true;
+                        finalItem.discountText = '优惠50%！';
+                    } else if (randomEvent < 0.2) { // 10%几率涨价
+                        finalItem.price = finalItem.price * 1.5;
+                        finalItem.isPriceIncrease = true;
+                        finalItem.priceIncreaseText = '涨价50%！';
+                    }
+                }
+                
+                items.push(finalItem);
+                }
             }
         }
     }
@@ -4171,16 +4296,46 @@ function refreshShopItems() {
         });
         
         if (availableItems.length > 0) {
-            // 优先选择加工台图纸（如果可用）
-            const workshopBlueprint = availableItems.find(item => item.name === '加工台图纸');
-            if (workshopBlueprint && Math.random() < 0.3) {
-                // 30%的概率选择加工台图纸
-                items.push({ name: workshopBlueprint.name, price: workshopBlueprint.price });
+            // 优先检查是否有优惠产品
+            const discountItems = availableItems.filter(item => item.isDiscount);
+            if (discountItems.length > 0 && Math.random() < 0.5) {
+                // 50%的概率选择优惠产品
+                const randomIndex = Math.floor(Math.random() * discountItems.length);
+                const selectedItem = discountItems[randomIndex];
+                items.push({ 
+                    name: selectedItem.name, 
+                    price: selectedItem.price,
+                    isDiscount: selectedItem.isDiscount,
+                    discountText: selectedItem.discountText
+                });
             } else {
-                // 否则随机选择
-                const randomIndex = Math.floor(Math.random() * availableItems.length);
-                const selectedItem = availableItems[randomIndex];
-                items.push({ name: selectedItem.name, price: selectedItem.price });
+                // 优先选择加工台图纸（如果可用）
+                const workshopBlueprint = availableItems.find(item => item.name === '加工台图纸');
+                if (workshopBlueprint && Math.random() < 0.3) {
+                    // 30%的概率选择加工台图纸
+                    items.push({ name: workshopBlueprint.name, price: workshopBlueprint.price });
+                } else {
+                    // 否则随机选择
+                    const randomIndex = Math.floor(Math.random() * availableItems.length);
+                    let selectedItem = availableItems[randomIndex];
+                    
+                    // 为非优惠产品添加随机打折或涨价
+                    let finalItem = { ...selectedItem };
+                    if (!finalItem.isDiscount) {
+                        const randomEvent = Math.random();
+                        if (randomEvent < 0.1) { // 10%几率打折
+                            finalItem.price = finalItem.price * 0.5;
+                            finalItem.isDiscount = true;
+                            finalItem.discountText = '优惠50%！';
+                        } else if (randomEvent < 0.2) { // 10%几率涨价
+                            finalItem.price = finalItem.price * 1.5;
+                            finalItem.isPriceIncrease = true;
+                            finalItem.priceIncreaseText = '涨价50%！';
+                        }
+                    }
+                    
+                    items.push(finalItem);
+                }
             }
         } else {
             break;
@@ -4292,6 +4447,18 @@ function updateWorkshopUI() {
     const workshopItemsElement = document.getElementById('workshop-items');
     const unlockWorkshopBtn = document.getElementById('unlock-workshop');
     
+    // 保存当前选择状态
+    let selectedRecipe = '铜铁合金线';
+    let craftQuantity = 1;
+    const existingRecipeSelect = document.getElementById('recipe-select');
+    const existingQuantityInput = document.getElementById('craft-quantity');
+    if (existingRecipeSelect) {
+        selectedRecipe = existingRecipeSelect.value;
+    }
+    if (existingQuantityInput) {
+        craftQuantity = parseInt(existingQuantityInput.value) || 1;
+    }
+    
     if (workshopStatusElement) {
         workshopStatusElement.textContent = gameData.workshop.unlocked ? '已解锁' : '未解锁';
     }
@@ -4342,6 +4509,16 @@ function updateWorkshopUI() {
                     <p>已制作物品: ${gameData.workshop.itemsCrafted}</p>
                 </div>
             `;
+            
+            // 恢复选择状态
+            const newRecipeSelect = document.getElementById('recipe-select');
+            const newQuantityInput = document.getElementById('craft-quantity');
+            if (newRecipeSelect) {
+                newRecipeSelect.value = selectedRecipe;
+            }
+            if (newQuantityInput) {
+                newQuantityInput.value = craftQuantity;
+            }
             
             // 添加加工台功能按钮的事件监听器
             document.getElementById('install-battery')?.addEventListener('click', installBattery);
@@ -4557,19 +4734,34 @@ function updateRecipeInfo() {
         const recipe = workshopRecipes[selectedRecipe];
         
         if (recipe) {
-            // 生成材料列表HTML
-            let materialsHTML = '<ul>';
-            for (const [material, amount] of Object.entries(recipe.materials)) {
-                const currentAmount = getCurrentItemCount(material);
-                const hasEnough = currentAmount >= amount;
-                materialsHTML += `<li style="color: ${hasEnough ? 'green' : 'red'}">${material}: ${amount} (当前: ${currentAmount})</li>`;
-            }
-            materialsHTML += '</ul>';
-            
             // 计算总能量需求
             const quantityInput = document.getElementById('craft-quantity');
             const quantity = quantityInput ? parseInt(quantityInput.value) : 1;
             const totalEnergyRequired = recipe.energy * quantity;
+            
+            // 生成材料列表HTML
+            let materialsHTML = '<ul>';
+            if (selectedRecipe === '铜铁合金线') {
+                // 特殊处理铜铁合金线的材料显示
+                if (quantity < 10) {
+                    materialsHTML += `<li style="color: red">铜铁合金线每次最少制作10个！</li>`;
+                } else {
+                    const copperIronAlloyNeeded = Math.ceil(quantity / 10);
+                    const currentAmount = getCurrentItemCount('铜铁合金');
+                    const hasEnough = currentAmount >= copperIronAlloyNeeded;
+                    materialsHTML += `<li style="color: ${hasEnough ? 'green' : 'red'}">铜铁合金: ${copperIronAlloyNeeded} (当前: ${currentAmount})</li>`;
+                    materialsHTML += `<li style="color: blue">每10个铜铁合金线消耗1个铜铁合金</li>`;
+                }
+            } else {
+                // 普通配方的材料显示
+                for (const [material, amount] of Object.entries(recipe.materials)) {
+                    const requiredAmount = amount * quantity;
+                    const currentAmount = getCurrentItemCount(material);
+                    const hasEnough = currentAmount >= requiredAmount;
+                    materialsHTML += `<li style="color: ${hasEnough ? 'green' : 'red'}">${material}: ${requiredAmount} (当前: ${currentAmount})</li>`;
+                }
+            }
+            materialsHTML += '</ul>';
             
             // 生成配方信息HTML
             recipeDetails.innerHTML = `
@@ -4596,8 +4788,27 @@ function craftWorkshopItem() {
         const recipe = workshopRecipes[selectedRecipe];
         
         if (recipe) {
+            // 特殊处理铜铁合金线
+            let actualQuantity = quantity;
+            let actualMaterials = recipe.materials;
+            
+            if (selectedRecipe === '铜铁合金线') {
+                // 每次最少制作10个
+                if (quantity < 10) {
+                    addMessage('铜铁合金线每次最少制作10个！');
+                    updateMessages();
+                    return;
+                }
+                
+                // 每10个铜铁合金线消耗1个铜铁合金
+                const copperIronAlloyNeeded = Math.ceil(quantity / 10);
+                actualMaterials = {
+                    '铜铁合金': copperIronAlloyNeeded
+                };
+            }
+            
             // 检查电池能量
-            const totalEnergyRequired = recipe.energy * quantity;
+            const totalEnergyRequired = recipe.energy * actualQuantity;
             if (!hasEnoughBatteryEnergy(totalEnergyRequired)) {
                 addMessage(`电池能量不足，需要${totalEnergyRequired}点能量！`);
                 updateMessages();
@@ -4626,22 +4837,21 @@ function craftWorkshopItem() {
             // 检查材料
             let canCraft = true;
             let missingMaterials = [];
-            for (const [material, amount] of Object.entries(recipe.materials)) {
-                const requiredAmount = amount * quantity;
-                if (!hasEnoughItem(material, requiredAmount)) {
+            for (const [material, amount] of Object.entries(actualMaterials)) {
+                if (!hasEnoughItem(material, amount)) {
                     canCraft = false;
-                    missingMaterials.push(`${material}: ${requiredAmount}`);
+                    missingMaterials.push(`${material}: ${amount}`);
                 }
             }
             
             if (canCraft) {
                 // 消耗材料
-                for (const [material, amount] of Object.entries(recipe.materials)) {
-                    consumeItem(material, amount * quantity);
+                for (const [material, amount] of Object.entries(actualMaterials)) {
+                    consumeItem(material, amount);
                 }
                 
                 // 消耗电池能量
-                for (let i = 0; i < quantity; i++) {
+                for (let i = 0; i < actualQuantity; i++) {
                     consumeBatteryEnergy(recipe.energy);
                 }
                 
@@ -4659,14 +4869,14 @@ function craftWorkshopItem() {
                     }
                 } else {
                     // 添加物品到背包
-                    for (let i = 0; i < quantity; i++) {
+                    for (let i = 0; i < actualQuantity; i++) {
                         addToBackpack(selectedRecipe);
                     }
                     addMessage(`${selectedRecipe}制作成功！`);
                 }
                 
                 // 更新加工台状态
-                gameData.workshop.itemsCrafted += quantity;
+                gameData.workshop.itemsCrafted += actualQuantity;
                 
                 updateMessages();
                 updateBackpackDisplay();
@@ -5089,6 +5299,40 @@ function updateToolUI() {
         }
     }
     
+    // 检查背包中是否有金手套，显示开启按钮
+    const hasGoldenGlove = hasEnoughItem('金手套', 1);
+    const pickaxeUpgradeBtn = document.getElementById('upgrade-pickaxe');
+    
+    // 移除旧的开启金手套按钮
+    const oldGoldenGloveBtn = document.getElementById('activate-golden-glove-btn');
+    if (oldGoldenGloveBtn) {
+        oldGoldenGloveBtn.remove();
+    }
+    
+    // 添加新的开启金手套按钮
+    if (hasGoldenGlove && pickaxeUpgradeBtn) {
+        const goldenGloveBtn = document.createElement('button');
+        goldenGloveBtn.id = 'activate-golden-glove-btn';
+        goldenGloveBtn.textContent = '开启金手套';
+        goldenGloveBtn.style.marginLeft = '10px';
+        goldenGloveBtn.style.padding = '5px 10px';
+        goldenGloveBtn.style.backgroundColor = '#ffd700';
+        goldenGloveBtn.style.color = '#856404';
+        goldenGloveBtn.style.border = '1px solid #ffc107';
+        goldenGloveBtn.style.borderRadius = '3px';
+        goldenGloveBtn.style.cursor = 'pointer';
+        goldenGloveBtn.addEventListener('click', () => {
+            // 消耗一个金手套
+            consumeItem('金手套', 1);
+            // 激活金手套效果
+            activateGoldenGlove();
+            // 更新UI
+            updateUI();
+            updateBackpackDisplay();
+        });
+        pickaxeUpgradeBtn.parentNode.appendChild(goldenGloveBtn);
+    }
+    
     // 更新矿车UI
     if (gameData.tools.cart && gameData.tools.cart.crafted && gameData.tools.cart.active) {
         // 确保矿车属性完整
@@ -5137,10 +5381,85 @@ function updateToolUI() {
     }
 }
 
+// 金手套相关函数
+function activateGoldenGlove() {
+    const now = Date.now();
+    if (gameData.goldenGlove.active) {
+        // 时间可叠加
+        gameData.goldenGlove.endTime += 3 * 60 * 1000; // 增加3分钟
+    } else {
+        // 首次激活
+        gameData.goldenGlove.active = true;
+        gameData.goldenGlove.endTime = now + 3 * 60 * 1000; // 3分钟后结束
+    }
+    
+    addMessage('金手套效果激活！3分钟内获得经验提高1000%！');
+    updateGoldenGloveUI();
+    saveGame();
+}
+
+function updateGoldenGloveUI() {
+    // 检查金手套效果是否激活
+    const now = Date.now();
+    if (gameData.goldenGlove.active && now < gameData.goldenGlove.endTime) {
+        const remainingTime = gameData.goldenGlove.endTime - now;
+        const totalTime = 3 * 60 * 1000;
+        const progress = 100 - (remainingTime / totalTime) * 100;
+        
+        // 创建或更新金手套进度条
+        let progressContainer = document.getElementById('golden-glove-progress');
+        if (!progressContainer) {
+            progressContainer = document.createElement('div');
+            progressContainer.id = 'golden-glove-progress';
+            progressContainer.style.marginTop = '10px';
+            progressContainer.style.padding = '10px';
+            progressContainer.style.backgroundColor = '#fff3cd';
+            progressContainer.style.border = '1px solid #ffeeba';
+            progressContainer.style.borderRadius = '5px';
+            
+            const pickaxeUpgradeBtn = document.getElementById('upgrade-pickaxe');
+            if (pickaxeUpgradeBtn) {
+                pickaxeUpgradeBtn.parentNode.appendChild(progressContainer);
+            }
+        }
+        
+        const minutes = Math.floor(remainingTime / 60000);
+        const seconds = Math.floor((remainingTime % 60000) / 1000);
+        
+        progressContainer.innerHTML = `
+            <div style="font-weight: bold; color: #856404;">金手套效果</div>
+            <div style="color: #856404;">经验获得提高1000%！</div>
+            <div style="margin-top: 5px; height: 10px; background-color: #fff;">
+                <div style="height: 100%; width: ${progress}%; background-color: #ffd700; transition: width 1s linear;"></div>
+            </div>
+            <div style="margin-top: 5px; font-size: 12px; color: #856404;">
+                剩余时间: ${minutes}:${seconds.toString().padStart(2, '0')}
+            </div>
+        `;
+    } else {
+        // 效果结束，移除进度条
+        const progressContainer = document.getElementById('golden-glove-progress');
+        if (progressContainer) {
+            progressContainer.remove();
+        }
+        gameData.goldenGlove.active = false;
+        saveGame();
+    }
+}
+
+// 应用金手套经验加成
+function applyGoldenGloveExpBonus(baseExp) {
+    if (gameData.goldenGlove.active && Date.now() < gameData.goldenGlove.endTime) {
+        return baseExp * 11; // 1000%加成，即11倍经验
+    }
+    return baseExp;
+}
+
 // 修改定时器，同时更新进度和UI
 setInterval(() => {
     updateToolProgress();
     updateToolUI();
+    updateGoldenGloveUI();
 }, 1000); // 每秒更新一次
 
 window.addEventListener('DOMContentLoaded', initGame);
