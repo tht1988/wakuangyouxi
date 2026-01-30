@@ -52,8 +52,9 @@
             </div>
             <div class="backpack-controls">
                 <button id="sell-btn">出售物品</button>
-                <button id="organize-btn">整理背包</button>
                 <button id="disassemble-btn">拆解物品</button>
+                <button id="filter-btn">物品过滤</button>
+                <button id="organize-btn">整理背包</button>
                 <div class="item-totals" id="item-totals">
                     <!-- 物品总数将通过JavaScript动态生成 -->
                 </div>
@@ -70,6 +71,17 @@
                     <label for="disassemble-amount">数量:</label>
                     <input type="number" id="disassemble-amount" min="1" max="20" value="1">
                     <button id="confirm-disassemble">确认拆解</button>
+                </div>
+                <div class="filter-panel" id="filter-panel">
+                    <h3>物品过滤</h3>
+                    <select id="filter-item"></select>
+                    <label for="filter-min-amount">最小保留数量:</label>
+                    <input type="number" id="filter-min-amount" min="0" max="9999" value="0">
+                    <button id="confirm-filter">确认设置</button>
+                    <button id="remove-filter">移除过滤</button>
+                    <div class="filter-settings" id="filter-settings">
+                        <!-- 过滤设置将通过JavaScript动态生成 -->
+                    </div>
                 </div>
             </div>
             
