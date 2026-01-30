@@ -23,12 +23,14 @@ let gameData = {
         cart: {
             crafted: false,
             level: 0,
-            exp: 0
+            exp: 0,
+            fuelTank: false // 燃料箱解锁状态
         },
         headlight: {
             crafted: false,
             level: 0,
-            exp: 0
+            exp: 0,
+            batterySlot: false // 电池仓解锁状态
         }
     },
     furnace: {
@@ -49,7 +51,31 @@ let gameData = {
     },
     unlockedRecipes: {}, // 存储已解锁的配方
     miningCount: {},
-    selectedMineral: null
+    selectedMineral: null,
+    // 商店系统
+    shop: {
+        unlocked: false,
+        level: 0,
+        refreshTime: 180, // 3分钟自动刷新
+        currentTime: 0,
+        items: [],
+        lastRefresh: Date.now(),
+        manualRefreshCost: 1000,
+        // 已解锁的图纸（制作过一次后不再刷出）
+        unlockedBlueprints: {
+            '加工台图纸': false,
+            '电池图纸': false,
+            '燃料配方': false
+        }
+    },
+    // 加工台系统
+    workshop: {
+        unlocked: false,
+        batterySlot: 0,
+        batteryEnergy: 0,
+        maxBatteryEnergy: 50,
+        itemsCrafted: 0
+    }
 };
 
 const backpackExpansions = {
@@ -300,12 +326,17 @@ function initGame() {
     generateMineralGrid();
     generateBackpack();
     generateExpansionSlots();
-    updateUI();
+    updateUI(); // 确保UI更新，包括商店界面
     updateFurnaceUI();
     updateGainedInfo();
     updateMessages();
     updateTempBackpackDisplay();
     addEventListeners();
+    // 再次检查商店解锁状态，确保商店界面能够正确显示
+    // 修复商店界面不显示的问题
+    setTimeout(() => {
+        checkShopUnlock();
+    }, 100);
 }
 
 function generateMineralGrid() {
@@ -1019,23 +1050,23 @@ function completeMining(mineral) {
     addGainedExp(mineral.exp);
     checkLevelUp();
     // 检查工具状态和消耗
-    if (!gameData.tools.cart) gameData.tools.cart = { crafted: false, active: true };
+    if (!gameData.tools.cart) gameData.tools.cart = { crafted: false, active: true, fuelType: 'coal', fuelCapacity: 50, currentFuel: 0 }; // fuelType: 'coal' 或 'fuel'
     if (!gameData.tools.headlight) gameData.tools.headlight = { crafted: false, active: true };
     
-    // 矿车加成：增加采矿数量，消耗煤矿
+    // 矿车加成：增加采矿数量，消耗燃料
     let baseAmount = 1;
     if (gameData.tools.cart && gameData.tools.cart.crafted && gameData.tools.cart.active) {
-        // 检查煤矿数量
-        if (hasEnoughItem('煤矿', 1)) {
-            // 消耗1煤矿
-            consumeItem('煤矿', 1);
+        // 检查燃料舱是否有足够的燃料
+        if (gameData.tools.cart.currentFuel > 0) {
+            // 消耗1点燃料
+            gameData.tools.cart.currentFuel -= 1;
             // 矿车初始采矿数量+1，每5级再提升1个采矿数量
             const cartBonus = 1 + Math.floor(gameData.tools.cart.level / 5);
             baseAmount = 1 + cartBonus;
         } else {
-            // 煤矿不足，自动停用矿车
+            // 燃料不足，自动停用矿车
             gameData.tools.cart.active = false;
-            addMessage('煤矿不足，矿车已自动停止使用！');
+            addMessage('燃料舱燃料不足，矿车已自动停止使用！请添加燃料。');
         }
     }
     
@@ -1501,7 +1532,10 @@ function checkLevelUp() {
 
 function getToolDescription() {
     // 确保工具对象存在
-    if (!gameData.tools.cart) gameData.tools.cart = { crafted: false, active: true };
+    if (!gameData.tools.cart) gameData.tools.cart = { crafted: false, active: true, fuelType: 'coal', fuelCapacity: 50, currentFuel: 0 };
+    if (gameData.tools.cart.fuelCapacity === undefined) gameData.tools.cart.fuelCapacity = 50;
+    if (gameData.tools.cart.currentFuel === undefined) gameData.tools.cart.currentFuel = 0;
+    if (gameData.tools.cart.fuelType === undefined) gameData.tools.cart.fuelType = 'coal';
     if (!gameData.tools.headlight) gameData.tools.headlight = { crafted: false, active: true };
     
     // 获取下一级工具升级需求
@@ -1532,15 +1566,8 @@ function getToolDescription() {
         if (!gameData.tools.cart.crafted || !gameData.tools.cart.active) {
             return 0;
         }
-        let coalCount = 0;
-        // 遍历背包中的所有物品，计算煤矿的总数量
-        for (const [itemName, count] of Object.entries(gameData.backpack.items)) {
-            const baseName = itemName.split('_')[0];
-            if (baseName === '煤矿') {
-                coalCount += count;
-            }
-        }
-        return coalCount;
+        // 直接返回燃料舱中的当前燃料量
+        return gameData.tools.cart.currentFuel || 0;
     }
     
     // 计算头灯剩余时间
@@ -1570,11 +1597,12 @@ function getToolDescription() {
         },
         cart: {
             name: '矿车',
-            description: '增加采矿数量，每次消耗1煤矿',
-            current: gameData.tools.cart.crafted ? `当前效果: 采矿数量+${Math.floor(gameData.tools.cart.level / 5)}个` : '未制作',
+            description: '增加采矿数量，消耗燃料舱中的燃料',
+            current: gameData.tools.cart.crafted ? `当前效果: 采矿数量+${Math.floor(gameData.tools.cart.level / 5)}个，使用${gameData.tools.cart.fuelType === 'fuel' ? '高级燃料' : '煤矿'}作为燃料` : '未制作',
             next: gameData.tools.cart.crafted ? (gameData.tools.cart.level < 50 ? `下一级: 采矿数量+${Math.floor((gameData.tools.cart.level + 1) / 5)}个` : '已达到最高等级') : '制作后获得效果',
             upgrade: gameData.tools.cart.crafted && gameData.tools.cart.level < 50 ? `升级需求: ${getNextLevelRequirements('cart')}` : '',
-            usesLeft: gameData.tools.cart.crafted && gameData.tools.cart.active ? `还能用: ${cartUsesLeft}次` : ''
+            usesLeft: gameData.tools.cart.crafted ? `燃料舱: ${gameData.tools.cart.currentFuel || 0}/${gameData.tools.cart.fuelCapacity || 50} (${gameData.tools.cart.fuelType === 'fuel' ? '高级燃料' : '煤矿'})` : '',
+            fuelInfo: gameData.tools.cart.crafted ? `${gameData.tools.cart.fuelType === 'fuel' ? '高级燃料提供50次消耗' : '煤矿提供1次消耗'}` : ''
         },
         headlight: {
             name: '头灯',
@@ -1609,12 +1637,40 @@ function updateUI() {
         : '未制作';
     document.getElementById('cart-status').textContent = cartText;
     
+    // 设置矿车燃料类型选择
+    const cartFuelTypeSelect = document.getElementById('cart-fuel-type');
+    const addCartFuelBtn = document.getElementById('add-cart-fuel');
+    if (cartFuelTypeSelect) {
+        if (gameData.tools.cart.crafted) {
+            cartFuelTypeSelect.value = gameData.tools.cart.fuelType || 'coal';
+            cartFuelTypeSelect.disabled = false;
+        } else {
+            cartFuelTypeSelect.value = 'coal';
+            cartFuelTypeSelect.disabled = true;
+        }
+    }
+    
+    // 设置添加燃料按钮状态
+    if (addCartFuelBtn) {
+        if (gameData.tools.cart.crafted) {
+            addCartFuelBtn.disabled = false;
+        } else {
+            addCartFuelBtn.disabled = true;
+        }
+    }
+    
     const headlightText = gameData.tools.headlight.crafted 
         ? `lv${gameData.tools.headlight.level} (${gameData.tools.headlight.exp || 0}/${gameData.tools.headlight.nextExp || 50}) ${gameData.tools.headlight.active ? '(使用中)' : '(已暂停)'}` 
         : '未制作';
     document.getElementById('headlight-status').textContent = headlightText;
     
     document.getElementById('furnace-level').textContent = gameData.furnace.level;
+    
+    // 检查商店解锁条件，确保商店界面能够正确显示
+    checkShopUnlock();
+    
+    // 更新加工台UI，确保加工台界面能够正确显示
+    updateWorkshopUI();
     
     // 更新工具详细说明
     updateToolDescriptions(toolDescriptions);
@@ -1632,6 +1688,7 @@ function updateToolDescriptions(descriptions) {
                 <span style="font-size: 0.8em; color: #888;">${info.next}</span>
                 ${info.upgrade ? `<br><span style="font-size: 0.8em; color: #4CAF50;">${info.upgrade}</span>` : ''}
                 ${info.usesLeft ? `<br><span style="font-size: 0.8em; color: #FF9800;">${info.usesLeft}</span>` : ''}
+                ${info.fuelInfo ? `<br><span style="font-size: 0.8em; color: #9C27B0;">${info.fuelInfo}</span>` : ''}
                 ${info.timeLeft ? `<br><span style="font-size: 0.8em; color: #2196F3;">${info.timeLeft}</span>` : ''}
             </div>
         `;
@@ -2305,14 +2362,37 @@ function addEventListeners() {
     // 工具升级按钮
     document.getElementById('upgrade-pickaxe').addEventListener('click', () => upgradeTool('pickaxe'));
     document.getElementById('upgrade-cart').addEventListener('click', () => upgradeTool('cart'));
+    
+    // 矿车燃料类型选择事件监听器
+    document.getElementById('cart-fuel-type').addEventListener('change', function() {
+        if (gameData.tools.cart && gameData.tools.cart.crafted) {
+            gameData.tools.cart.fuelType = this.value;
+            addMessage(`矿车燃料类型已切换为${this.value === 'coal' ? '煤矿' : '高级燃料'}！`);
+            updateMessages();
+            saveGame();
+        } else {
+            alert('矿车尚未制作！');
+            // 重置选择
+            this.value = 'coal';
+        }
+    });
+    
+    // 添加燃料按钮事件监听器
+    document.getElementById('add-cart-fuel').addEventListener('click', addCartFuel);
     document.getElementById('upgrade-headlight').addEventListener('click', () => upgradeTool('headlight'));
     
     // 临时背包按钮
-    const moveTempBtn = document.getElementById('move-temp-items');
-    if (moveTempBtn) {
-        moveTempBtn.addEventListener('click', moveTempItemsToBackpack);
+        const moveTempBtn = document.getElementById('move-temp-items');
+        if (moveTempBtn) {
+            moveTempBtn.addEventListener('click', moveTempItemsToBackpack);
+        }
+        
+        // 加工台按钮
+        const unlockWorkshopBtn = document.getElementById('unlock-workshop');
+        if (unlockWorkshopBtn) {
+            unlockWorkshopBtn.addEventListener('click', unlockWorkshop);
+        }
     }
-}
 
 function showSaveMessage(message) {
     const saveMessage = document.getElementById('save-message');
@@ -2330,21 +2410,29 @@ function updateSellPanel() {
     // 添加主背包中的物品
     const backpackItems = Object.keys(gameData.backpack.items);
     backpackItems.forEach(item => {
-        const option = document.createElement('option');
-        option.value = `backpack_${item}`;
-        const displayName = item.split('_')[0];
-        option.textContent = `${displayName} (主背包) (${gameData.backpack.items[item]})`;
-        sellItemSelect.appendChild(option);
+        const baseItemName = item.split('_')[0];
+        // 跳过消耗品
+        if (!isConsumable(baseItemName)) {
+            const option = document.createElement('option');
+            option.value = `backpack_${item}`;
+            const displayName = baseItemName;
+            option.textContent = `${displayName} (主背包) (${gameData.backpack.items[item]})`;
+            sellItemSelect.appendChild(option);
+        }
     });
     
     // 添加临时背包中的物品
     const tempItems = Object.keys(gameData.tempBackpack.items);
     tempItems.forEach(item => {
-        const option = document.createElement('option');
-        option.value = `temp_${item}`;
-        const displayName = item.split('_')[0];
-        option.textContent = `${displayName} (临时背包) (${gameData.tempBackpack.items[item]})`;
-        sellItemSelect.appendChild(option);
+        const baseItemName = item.split('_')[0];
+        // 跳过消耗品
+        if (!isConsumable(baseItemName)) {
+            const option = document.createElement('option');
+            option.value = `temp_${item}`;
+            const displayName = baseItemName;
+            option.textContent = `${displayName} (临时背包) (${gameData.tempBackpack.items[item]})`;
+            sellItemSelect.appendChild(option);
+        }
     });
 }
 
@@ -2361,6 +2449,13 @@ function sellItem() {
     const [backpackType, ...itemNameParts] = itemValue.split('_');
     const itemName = itemNameParts.join('_');
     const baseItemName = itemName.split('_')[0];
+    
+    // 检查是否是消耗品
+    if (isConsumable(baseItemName)) {
+        addMessage('消耗品不可出售！');
+        updateMessages();
+        return;
+    }
     
     let price = 0;
     
@@ -2393,23 +2488,23 @@ function sellItem() {
         } else {
             // 检查是否是合金
             if (alloyRecipes[baseItemName]) {
-                // 为合金设置价格：两个材料的价格总和再加上50%
+                // 为合金设置价格：两个材料的价格总和再加上50%，确保玩家制作合金后出售能够获得利润
                 switch (baseItemName) {
                     case '铜铁合金':
-                        // 铜矿(11) + 铁矿(7) = 18 * 1.5 = 27
-                        price = 27;
+                        // 铜矿(11) + 铁矿(7) = 18 * 1.5 = 27 → 修正：(11+7)*2=36 * 1.5=54
+                        price = 54;
                         break;
                     case '铜钴合金':
-                        // 铜矿(11) + 钴矿(15) = 26 * 1.5 = 39
-                        price = 39;
+                        // 铜矿(11) + 钴矿(15) = 26 * 1.5 = 39 → 修正：(11+15)*2=52 * 1.5=78
+                        price = 78;
                         break;
                     case '铜镍合金':
-                        // 铜矿(11) + 镍矿(18) = 29 * 1.5 = 43.5 → 44
-                        price = 44;
+                        // 铜矿(11) + 镍矿(18) = 29 * 1.5 = 43.5 → 44 → 修正：(11+18)*2=58 * 1.5=87
+                        price = 87;
                         break;
                     case '铜银合金':
-                        // 铜矿(11) + 银矿(21) = 32 * 1.5 = 48
-                        price = 48;
+                        // 铜矿(11) + 银矿(21) = 32 * 1.5 = 48 → 修正：(11+21)*2=64 * 1.5=96
+                        price = 96;
                         break;
                     default:
                         price = 20;
@@ -2912,6 +3007,12 @@ function makeAlloy(alloyName, amount = 1) {
         return;
     }
     
+    // 检查是否获得了配方
+    if (!hasAlloyRecipe(alloyName)) {
+        alert('你还没有获得这个合金的配方！');
+        return;
+    }
+    
     const requiredLevel = getRequiredLevelForAlloy(alloyName);
     if (gameData.player.level < requiredLevel) {
         alert(`等级不足！需要${requiredLevel}级才能制作${alloyName}`);
@@ -2987,6 +3088,11 @@ function makeAlloy(alloyName, amount = 1) {
     // 制作合金
     for (let i = 0; i < amount; i++) {
         addToBackpack(alloyName);
+    }
+    
+    // 如果配方尚未解锁，使用配方物品进行解锁
+    if (!gameData.unlockedRecipes[alloyName]) {
+        unlockAlloyRecipe(alloyName);
     }
     
     // 生成消耗材料的消息
@@ -3330,11 +3436,39 @@ function loadGame() {
     } else {
         initDefaultGameData();
     }
+    
+    // 确保商店数据完整性
+    if (!gameData.shop.lastRefresh) {
+        gameData.shop.lastRefresh = Date.now();
+    }
+    if (!gameData.shop.items) {
+        gameData.shop.items = [];
+    }
+    
     calculateBackpackStats();
     generateBackpack();
     generateExpansionSlots();
     updateBackpackDisplay();
     updateTempBackpackDisplay();
+    
+    // 延迟检查商店解锁状态，确保所有数据都已初始化完成
+    setTimeout(() => {
+        // 检查商店解锁状态
+        checkShopUnlock();
+        // 只有当商店已解锁但完全没有物品时，才刷新物品
+        // 避免每次页面加载都刷新商店
+        // 确保不会因为空数组而导致的刷新
+        if (gameData.shop.unlocked && gameData.shop.items.length === 0 && (!gameData.shop.lastRefresh || Date.now() - gameData.shop.lastRefresh > 300000)) {
+            // 延迟刷新，确保其他初始化完成后再刷新
+            // 使用较长的延迟，避免与其他刷新冲突
+            setTimeout(() => {
+                // 再次检查，确保没有其他地方已经刷新了物品
+                if (gameData.shop.unlocked && gameData.shop.items.length === 0 && (!gameData.shop.lastRefresh || Date.now() - gameData.shop.lastRefresh > 300000)) {
+                    refreshShopItems();
+                }
+            }, 2000);
+        }
+    }, 500);
 }
 
 function ensureGameDataIntegrity() {
@@ -3374,13 +3508,35 @@ function ensureGameDataIntegrity() {
     if (gameData.tools.headlight && !gameData.tools.headlight.lastGoldConsume) {
         gameData.tools.headlight.lastGoldConsume = Date.now();
     }
-    // 确保矿车有active属性
-    if (gameData.tools.cart && gameData.tools.cart.crafted && gameData.tools.cart.active === undefined) {
-        gameData.tools.cart.active = true;
+    // 确保矿车属性完整
+    if (gameData.tools.cart) {
+        if (gameData.tools.cart.active === undefined) {
+            gameData.tools.cart.active = true;
+        }
+        if (gameData.tools.cart.fuelType === undefined) {
+            gameData.tools.cart.fuelType = 'coal';
+        }
+        if (gameData.tools.cart.fuelCapacity === undefined) {
+            gameData.tools.cart.fuelCapacity = 50;
+        }
+        if (gameData.tools.cart.currentFuel === undefined) {
+            gameData.tools.cart.currentFuel = 0;
+        }
+        if (gameData.tools.cart.nextExp === undefined) {
+            gameData.tools.cart.nextExp = 50;
+        }
     }
-    // 确保头灯有active属性
-    if (gameData.tools.headlight && gameData.tools.headlight.crafted && gameData.tools.headlight.active === undefined) {
-        gameData.tools.headlight.active = true;
+    // 确保头灯属性完整
+    if (gameData.tools.headlight) {
+        if (gameData.tools.headlight.active === undefined) {
+            gameData.tools.headlight.active = true;
+        }
+        if (gameData.tools.headlight.lastGoldConsume === undefined) {
+            gameData.tools.headlight.lastGoldConsume = Date.now();
+        }
+        if (gameData.tools.headlight.nextExp === undefined) {
+            gameData.tools.headlight.nextExp = 50;
+        }
     }
     if (!gameData.furnace) {
         gameData.furnace = {
@@ -3423,6 +3579,61 @@ function ensureGameDataIntegrity() {
     gameData.backpack.maxExpansionSlots = 12;
     while (gameData.backpack.expansionSlots.length < gameData.backpack.maxExpansionSlots) {
         gameData.backpack.expansionSlots.push(null);
+    }
+    // 确保商店系统存在
+    if (!gameData.shop) {
+        gameData.shop = {
+            unlocked: false,
+            level: 0,
+            refreshTime: 180, // 3分钟自动刷新
+            currentTime: 0,
+            items: [],
+            lastRefresh: Date.now(),
+            manualRefreshCost: 1000,
+            // 已解锁的图纸（制作过一次后不再刷出）
+            unlockedBlueprints: {
+                '加工台图纸': false,
+                '电池图纸': false,
+                '燃料配方': false
+            }
+        };
+    }
+    // 确保商店系统的属性存在
+    if (gameData.shop.items === undefined) {
+        gameData.shop.items = [];
+    }
+    if (gameData.shop.lastRefresh === undefined) {
+        gameData.shop.lastRefresh = Date.now();
+    }
+    if (gameData.shop.unlockedBlueprints === undefined) {
+        gameData.shop.unlockedBlueprints = {
+            '加工台图纸': false,
+            '电池图纸': false,
+            '燃料配方': false
+        };
+    }
+    // 确保加工台系统存在
+    if (!gameData.workshop) {
+        gameData.workshop = {
+            unlocked: false,
+            batterySlot: 0,
+            batteryEnergy: 0,
+            maxBatteryEnergy: 50,
+            itemsCrafted: 0
+        };
+    }
+    // 确保加工台系统的属性存在
+    if (gameData.workshop.batterySlot === undefined) {
+        gameData.workshop.batterySlot = 0;
+    }
+    if (gameData.workshop.batteryEnergy === undefined) {
+        gameData.workshop.batteryEnergy = 0;
+    }
+    if (gameData.workshop.maxBatteryEnergy === undefined) {
+        gameData.workshop.maxBatteryEnergy = 50;
+    }
+    if (gameData.workshop.itemsCrafted === undefined) {
+        gameData.workshop.itemsCrafted = 0;
     }
 }
 
@@ -3478,7 +3689,31 @@ function initDefaultGameData() {
         },
         unlockedRecipes: {},
         miningCount: {},
-        selectedMineral: null
+        selectedMineral: null,
+        // 商店系统
+        shop: {
+            unlocked: false,
+            level: 0,
+            refreshTime: 180, // 3分钟自动刷新
+            currentTime: 0,
+            items: [],
+            lastRefresh: Date.now(),
+            manualRefreshCost: 1000,
+            // 已解锁的图纸（制作过一次后不再刷出）
+            unlockedBlueprints: {
+                '加工台图纸': false,
+                '电池图纸': false,
+                '燃料配方': false
+            }
+        },
+        // 加工台系统
+        workshop: {
+            unlocked: false,
+            batterySlot: 0,
+            batteryEnergy: 0,
+            maxBatteryEnergy: 50,
+            itemsCrafted: 0
+        }
     };
     while (gameData.backpack.expansionSlots.length < gameData.backpack.maxExpansionSlots) {
         gameData.backpack.expansionSlots.push(null);
@@ -3556,6 +3791,1021 @@ function updateDisassemblePanel() {
         disassembleItemSelect.appendChild(option);
     });
 }
+
+// 商店系统相关函数
+function checkShopUnlock() {
+    if (gameData.player.level >= 10 && !gameData.shop.unlocked) {
+        gameData.shop.unlocked = true;
+        updateShopUI();
+        refreshShopItems();
+        addMessage('商店已解锁！现在可以购买各种物品和图纸。');
+        updateMessages();
+    }
+    // 确保商店UI正确显示，无论商店状态是否变化
+    // 修复商店界面不显示的问题
+    if (gameData.shop.unlocked) {
+        updateShopUI();
+    }
+}
+
+function updateShopUI() {
+    const shopElement = document.getElementById('shop');
+    const shopItemsElement = document.getElementById('shop-items');
+    const shopLevelElement = document.getElementById('shop-level');
+    
+    if (shopLevelElement) {
+        shopLevelElement.textContent = gameData.shop.level + 1;
+    }
+    
+    if (gameData.shop.unlocked) {
+        shopElement.style.display = 'block';
+        // 直接渲染物品，避免延迟导致的闪烁
+        renderShopItems();
+    } else {
+        shopElement.style.display = 'none';
+    }
+}
+
+function renderShopItems() {
+    const shopItemsElement = document.getElementById('shop-items');
+    if (!shopItemsElement) return;
+    
+    if (gameData.shop.items.length === 0) {
+        if (gameData.shop.unlocked) {
+            // 检查是否是首次加载或真的需要刷新
+            // 只有当items不存在、lastRefresh不存在、或者超过5分钟未刷新时才刷新
+            // 确保不会因为空数组而导致的刷新
+            const shouldRefresh = (!gameData.shop.items || gameData.shop.items === null) || (!gameData.shop.lastRefresh || gameData.shop.lastRefresh === 0) || (Date.now() - gameData.shop.lastRefresh > 300000);
+            
+            if (shouldRefresh) {
+                shopItemsElement.innerHTML = '<p>商店正在刷新，请稍候...</p>';
+                // 延迟刷新，避免与其他刷新冲突
+                setTimeout(() => {
+                    // 再次检查，确保没有其他地方已经刷新了物品
+                    if (gameData.shop.unlocked && (!gameData.shop.items || gameData.shop.items.length === 0)) {
+                        refreshShopItems();
+                    }
+                }, 1000);
+            } else {
+                // 如果不需要刷新，显示空商店消息
+                shopItemsElement.innerHTML = '<p>商店暂时没有物品，请稍后再来查看。</p>';
+            }
+        } else {
+            shopItemsElement.innerHTML = '<p>商店未解锁，玩家等级达到10级后开启</p>';
+        }
+        return;
+    }
+    
+    shopItemsElement.innerHTML = '';
+    gameData.shop.items.forEach(item => {
+        const itemElement = document.createElement('div');
+        itemElement.className = 'shop-item';
+        itemElement.innerHTML = `
+            <div class="shop-item-name">${item.name}</div>
+            <div class="shop-item-price">价格: ${item.price}金币</div>
+            <button class="buy-item" data-item="${item.name}" data-price="${item.price}">购买</button>
+        `;
+        shopItemsElement.appendChild(itemElement);
+    });
+    
+    // 添加购买按钮事件监听器
+    document.querySelectorAll('.buy-item').forEach(button => {
+        button.addEventListener('click', function() {
+            const itemName = this.getAttribute('data-item');
+            const price = parseInt(this.getAttribute('data-price'));
+            buyShopItem(itemName, price);
+        });
+    });
+}
+
+function buyShopItem(itemName, price) {
+    // 找到物品在商店列表中的索引
+    const itemIndex = gameData.shop.items.findIndex(item => item.name === itemName && item.price === price);
+    
+    if (gameData.player.gold >= price && itemIndex !== -1) {
+        // 扣除金币
+        gameData.player.gold -= price;
+        
+        // 处理物品添加
+        let baseItemName = itemName;
+        if (itemName.includes('*')) {
+            // 处理批量物品，如"棉布*10"
+            const [name, amountStr] = itemName.split('*');
+            baseItemName = name;
+            const amount = parseInt(amountStr);
+            for (let i = 0; i < amount; i++) {
+                addToBackpack(baseItemName);
+            }
+        } else {
+            // 处理单个物品
+            addToBackpack(itemName);
+        }
+        
+        // 图纸类物品处理
+        if (baseItemName === '加工台图纸') {
+            // 加工台图纸需要保留在背包中，只有在实际使用时才标记为已解锁
+            addMessage(`购买了${baseItemName}！`);
+        } else if (baseItemName === '电池图纸' || baseItemName === '燃料配方') {
+            // 电池图纸和燃料配方是解锁制作权限的，购买后立即标记为已解锁
+            gameData.shop.unlockedBlueprints[baseItemName] = true;
+            addMessage(`成功解锁${baseItemName}！`);
+        }
+        
+        // 从商店列表中移除购买的物品
+        gameData.shop.items.splice(itemIndex, 1);
+        
+        // 更新UI
+        updateUI();
+        updateBackpackDisplay();
+        renderShopItems(); // 确保商店UI也更新
+        
+        addMessage(`购买成功：${itemName} (${price}金币)`);
+        updateMessages();
+        
+        // 保存游戏数据
+        saveGame();
+    } else {
+        addMessage('金币不足或物品不存在，无法购买！');
+        updateMessages();
+    }
+}
+
+function refreshShopItems() {
+    if (!gameData.shop.unlocked) return;
+    
+    const items = [];
+    const itemCount = Math.floor(Math.random() * 3) + 3; // 3-5个物品
+    
+    // 物品池
+    const itemPool = [
+        { name: '加工台图纸', price: 1000, probability: 0.5, isBlueprint: true },
+        { name: '电池图纸', price: 1000, probability: 0.3, isBlueprint: true },
+        { name: '燃料配方', price: 1000, probability: 0.3, isBlueprint: true },
+        { name: '棉布*10', price: 40, probability: 0.2 },
+        { name: '织布*10', price: 80, probability: 0.2 },
+        { name: '粗麻布*10', price: 120, probability: 0.2 },
+        { name: '电池*1', price: 350, probability: 0.05 },
+        { name: '燃料*1', price: 300, probability: 0.05 },
+        { name: '木材*10', price: 100, probability: 0.2 }
+    ];
+    
+    // 添加已解锁的矿物
+    minerals.forEach(mineral => {
+        if (gameData.player.level >= mineral.minLevel) {
+            itemPool.push({
+                name: `${mineral.name}*10`,
+                price: mineral.price * 2 * 10, // 出售价值的200%，乘以数量10
+                probability: 0.2
+            });
+        }
+    });
+    
+    // 添加已解锁的合金
+    for (const [alloyName, alloyData] of Object.entries(alloyRecipes)) {
+        // 检查玩家是否达到合金制作的等级要求
+        const requiredLevel = getRequiredLevelForAlloy(alloyName);
+        if (gameData.player.level >= requiredLevel) {
+            // 根据合金类型设置价格，使用出售价格的200%作为单个价格，然后乘以数量
+            let singleAlloyPrice = 20;
+            switch (alloyName) {
+                case '铜铁合金':
+                    singleAlloyPrice = 54 * 2; // 出售价格54 * 2
+                    break;
+                case '铜钴合金':
+                    singleAlloyPrice = 78 * 2; // 出售价格78 * 2
+                    break;
+                case '铜镍合金':
+                    singleAlloyPrice = 87 * 2; // 出售价格87 * 2
+                    break;
+                case '铜银合金':
+                    singleAlloyPrice = 96 * 2; // 出售价格96 * 2
+                    break;
+            }
+            const amount = 5; // 合金数量
+            const totalPrice = singleAlloyPrice * amount;
+            itemPool.push({
+                name: `${alloyName}*${amount}`, // 合金数量
+                price: totalPrice,
+                probability: 0.15
+            });
+        }
+    }
+    
+    // 生成物品
+    for (let i = 0; i < itemCount; i++) {
+        // 过滤掉已解锁的图纸
+        const availableItems = itemPool.filter(item => {
+            if (item.isBlueprint) {
+                // 检查图纸是否已解锁
+                // 对于加工台图纸，只有在加工台已解锁时才过滤
+                if (item.name === '加工台图纸') {
+                    return !gameData.workshop.unlocked;
+                }
+                return !gameData.shop.unlockedBlueprints[item.name];
+            }
+            return true;
+        });
+        
+        if (availableItems.length > 0) {
+            // 优先选择加工台图纸（如果可用）
+            const workshopBlueprint = availableItems.find(item => item.name === '加工台图纸');
+            if (workshopBlueprint && Math.random() < 0.7) {
+                // 70%的概率选择加工台图纸
+                items.push({ name: workshopBlueprint.name, price: workshopBlueprint.price });
+            } else {
+                // 否则随机选择
+                const randomIndex = Math.floor(Math.random() * availableItems.length);
+                const selectedItem = availableItems[randomIndex];
+                items.push({ name: selectedItem.name, price: selectedItem.price });
+            }
+        }
+    }
+    
+    // 确保至少有3个物品
+    while (items.length < 3) {
+        const availableItems = itemPool.filter(item => {
+            if (item.isBlueprint) {
+                // 检查图纸是否已解锁
+                // 对于加工台图纸，只有在加工台已解锁时才过滤
+                if (item.name === '加工台图纸') {
+                    return !gameData.workshop.unlocked;
+                }
+                return !gameData.shop.unlockedBlueprints[item.name];
+            }
+            return true;
+        });
+        
+        if (availableItems.length > 0) {
+            // 优先选择加工台图纸（如果可用）
+            const workshopBlueprint = availableItems.find(item => item.name === '加工台图纸');
+            if (workshopBlueprint && Math.random() < 0.7) {
+                // 70%的概率选择加工台图纸
+                items.push({ name: workshopBlueprint.name, price: workshopBlueprint.price });
+            } else {
+                // 否则随机选择
+                const randomIndex = Math.floor(Math.random() * availableItems.length);
+                const selectedItem = availableItems[randomIndex];
+                items.push({ name: selectedItem.name, price: selectedItem.price });
+            }
+        } else {
+            break;
+        }
+    }
+    
+    gameData.shop.items = items;
+    gameData.shop.lastRefresh = Date.now();
+    renderShopItems();
+    updateShopCountdown();
+}
+
+function updateShopCountdown() {
+    const countdownElement = document.getElementById('shop-countdown');
+    const progressElement = document.getElementById('shop-progress');
+    if (!countdownElement || !progressElement) return;
+    
+    const now = Date.now();
+    const elapsed = (now - gameData.shop.lastRefresh) / 1000;
+    const remaining = Math.max(0, gameData.shop.refreshTime - elapsed);
+    
+    const minutes = Math.floor(remaining / 60);
+    const seconds = Math.floor(remaining % 60);
+    countdownElement.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+    
+    const progress = (elapsed / gameData.shop.refreshTime) * 100;
+    progressElement.style.width = `${Math.min(progress, 100)}%`;
+    
+    if (remaining <= 0) {
+        refreshShopItems();
+    }
+}
+
+// 手动刷新商店
+function manualRefreshShop() {
+    if (gameData.player.gold >= gameData.shop.manualRefreshCost) {
+        gameData.player.gold -= gameData.shop.manualRefreshCost;
+        refreshShopItems();
+        updateUI();
+        addMessage(`手动刷新商店成功，消耗1000金币`);
+        updateMessages();
+    } else {
+        addMessage('金币不足，无法手动刷新商店！');
+        updateMessages();
+    }
+}
+
+// 加工台配方数据
+const workshopRecipes = {
+    '铜铁合金线': {
+        materials: {
+            '铜铁合金': 1
+        },
+        energy: 1,
+        description: '用于制作电池的基础材料',
+        unlocked: true
+    },
+    '电池': {
+        materials: {
+            '铜铁合金': 5,
+            '铜铁合金线': 20,
+            '棉布': 10
+        },
+        energy: 1,
+        description: '为加工台提供能量，1个电池提供50点能量',
+        unlocked: function() {
+            return gameData.shop.unlockedBlueprints['电池图纸'];
+        }
+    },
+    '燃料': {
+        materials: {
+            '木材': 10,
+            '棉布': 10,
+            '煤矿': 5
+        },
+        energy: 1,
+        description: '用于熔炉的高级燃料',
+        unlocked: function() {
+            return gameData.shop.unlockedBlueprints['燃料配方'];
+        }
+    },
+    '优化头灯': {
+        materials: {
+            '铜铁合金': 1,
+            '铜矿': 10,
+            '尼龙布': 10
+        },
+        energy: 1,
+        description: '提高头灯效率，减少能量消耗',
+        unlocked: true
+    },
+    '优化矿车': {
+        materials: {
+            '铜铁合金': 1,
+            '铁矿': 15,
+            '木材': 10
+        },
+        energy: 1,
+        description: '提高矿车容量，增加单次采矿量',
+        unlocked: true
+    }
+};
+
+// 加工台系统相关函数
+// 更新加工台UI
+function updateWorkshopUI() {
+    const workshopElement = document.getElementById('workshop');
+    const workshopStatusElement = document.getElementById('workshop-status');
+    const workshopItemsElement = document.getElementById('workshop-items');
+    const unlockWorkshopBtn = document.getElementById('unlock-workshop');
+    
+    if (workshopStatusElement) {
+        workshopStatusElement.textContent = gameData.workshop.unlocked ? '已解锁' : '未解锁';
+    }
+    
+    if (workshopItemsElement) {
+        if (gameData.workshop.unlocked) {
+            workshopItemsElement.innerHTML = `
+                <p>加工台已解锁！现在可以制作中级物品和优化工具。</p>
+                <div class="workshop-battery">
+                    <h3>电池系统</h3>
+                    <div class="battery-info">
+                        <p>电池槽: ${gameData.workshop.batterySlot}/1</p>
+                        <p>电池能量: ${gameData.workshop.batteryEnergy}/${gameData.workshop.maxBatteryEnergy}</p>
+                        <div class="battery-progress">
+                            <div class="battery-progress-bar" style="width: ${(gameData.workshop.batteryEnergy / gameData.workshop.maxBatteryEnergy) * 100}%"></div>
+                        </div>
+                        <button id="install-battery">安装电池 (1个电池提供50点能量)</button>
+                    </div>
+                </div>
+                <div class="workshop-crafting">
+                    <h3>物品制作</h3>
+                    <div class="crafting-controls">
+                        <div class="recipe-select">
+                            <label for="recipe-select">选择配方:</label>
+                            <select id="recipe-select">
+                                <option value="铜铁合金线">铜铁合金线</option>
+                                <option value="电池">电池</option>
+                                <option value="燃料">燃料</option>
+                                <option value="优化头灯">优化头灯</option>
+                                <option value="优化矿车">优化矿车</option>
+                            </select>
+                        </div>
+                        <div class="quantity-input">
+                            <label for="craft-quantity">制作数量:</label>
+                            <input type="number" id="craft-quantity" min="1" max="50" value="1">
+                        </div>
+                        <button id="craft-item">开始制作</button>
+                    </div>
+                    <div class="recipe-info" id="recipe-info">
+                        <h4>配方信息</h4>
+                        <div id="recipe-details">
+                            请选择一个配方查看详细信息
+                        </div>
+                    </div>
+                </div>
+                <div class="workshop-stats">
+                    <h3>加工台状态</h3>
+                    <p>已制作物品: ${gameData.workshop.itemsCrafted}</p>
+                </div>
+            `;
+            
+            // 添加加工台功能按钮的事件监听器
+            document.getElementById('install-battery')?.addEventListener('click', installBattery);
+            document.getElementById('craft-item')?.addEventListener('click', craftWorkshopItem);
+            document.getElementById('recipe-select')?.addEventListener('change', updateRecipeInfo);
+            document.getElementById('craft-quantity')?.addEventListener('input', updateRecipeInfo);
+            
+            // 初始化配方信息
+            updateRecipeInfo();
+        } else {
+            // 获取当前材料数量
+            const level = gameData.player.level;
+            const blueprintCount = getCurrentItemCount('加工台图纸');
+            const woodCount = getCurrentItemCount('木材');
+            const linenCount = getCurrentItemCount('粗麻布');
+            const alloyCount = getCurrentItemCount('铜铁合金');
+            const limeCount = getCurrentItemCount('石灰');
+            const batteryCount = getCurrentItemCount('电池');
+            
+            // 检查是否满足条件
+            const levelOk = level >= 15;
+            const blueprintOk = blueprintCount >= 1;
+            const woodOk = woodCount >= 20;
+            const linenOk = linenCount >= 20;
+            const alloyOk = alloyCount >= 30;
+            const limeOk = limeCount >= 50;
+            const batteryOk = batteryCount >= 1;
+            
+            // 生成材料列表HTML
+            let materialsHTML = `
+                <p>加工台未解锁，需要以下材料：</p>
+                <ul>
+                    <li style="color: ${levelOk ? 'green' : 'red'}">等级15 (当前: ${level})</li>
+                    <li style="color: ${blueprintOk ? 'green' : 'red'}">加工台图纸 (需要: 1, 当前: ${blueprintCount})</li>
+                    <li style="color: ${woodOk ? 'green' : 'red'}">木材 (需要: 20, 当前: ${woodCount})</li>
+                    <li style="color: ${linenOk ? 'green' : 'red'}">粗麻布 (需要: 20, 当前: ${linenCount})</li>
+                    <li style="color: ${alloyOk ? 'green' : 'red'}">铜铁合金 (需要: 30, 当前: ${alloyCount})</li>
+                    <li style="color: ${limeOk ? 'green' : 'red'}">石灰 (需要: 50, 当前: ${limeCount})</li>
+                    <li style="color: ${batteryOk ? 'green' : 'red'}">电池 (需要: 1, 当前: ${batteryCount})</li>
+                </ul>
+            `;
+            
+            workshopItemsElement.innerHTML = materialsHTML;
+        }
+    }
+    
+    if (unlockWorkshopBtn) {
+        if (gameData.workshop.unlocked) {
+            unlockWorkshopBtn.textContent = '加工台已解锁';
+            unlockWorkshopBtn.disabled = true;
+        } else {
+            unlockWorkshopBtn.textContent = '解锁加工台 (需要等级15和加工台图纸)';
+            unlockWorkshopBtn.disabled = false;
+        }
+    }
+}
+
+// 获取当前物品数量的辅助函数
+function getCurrentItemCount(itemName) {
+    let count = 0;
+    for (const [name, itemCount] of Object.entries(gameData.backpack.items)) {
+        const baseName = name.split('_')[0];
+        if (baseName === itemName) {
+            count += itemCount;
+        }
+    }
+    return count;
+}
+
+function unlockWorkshop() {
+    if (gameData.player.level >= 15 && hasEnoughItem('加工台图纸', 1) && !gameData.workshop.unlocked) {
+        // 消耗加工台图纸
+        consumeItem('加工台图纸', 1);
+        
+        // 消耗其他材料
+        const materials = {
+            '木材': 20,
+            '粗麻布': 20,
+            '铜铁合金': 30,
+            '石灰': 50,
+            '电池': 1
+        };
+        
+        let canCraft = true;
+        let missingMaterials = [];
+        for (const [material, amount] of Object.entries(materials)) {
+            if (!hasEnoughItem(material, amount)) {
+                canCraft = false;
+                missingMaterials.push(`${material}: ${amount}`);
+            }
+        }
+        
+        if (canCraft) {
+            for (const [material, amount] of Object.entries(materials)) {
+                consumeItem(material, amount);
+            }
+            
+            gameData.workshop.unlocked = true;
+            // 强制设置电池槽为1
+            gameData.workshop.batterySlot = 1;
+            // 确保其他电池系统属性正确设置
+            gameData.workshop.batteryEnergy = 0;
+            gameData.workshop.maxBatteryEnergy = 50;
+            // 标记加工台图纸为已解锁，避免商店再次刷新
+            gameData.shop.unlockedBlueprints['加工台图纸'] = true;
+            addMessage('加工台已解锁！现在可以制作中级物品和优化工具。');
+            addMessage('加工台图纸已使用并标记为已解锁，商店将不再刷新此图纸。');
+            addMessage('加工台已配备电池槽，可安装电池供能！');
+            addMessage('1个电池可提供50点能量，每制作1个物品消耗1点能量。');
+            updateMessages();
+            updateBackpackDisplay();
+            updateWorkshopUI(); // 更新加工台UI
+            saveGame(); // 保存游戏状态
+        } else {
+            // 恢复加工台图纸
+            addToBackpack('加工台图纸');
+            addMessage(`材料不足，无法解锁加工台！缺少: ${missingMaterials.join(', ')}`);
+            updateMessages();
+        }
+    } else if (gameData.player.level < 15) {
+        addMessage('等级不足，需要等级15才能解锁加工台！');
+        updateMessages();
+    } else if (!hasEnoughItem('加工台图纸', 1)) {
+        addMessage('缺少加工台图纸，无法解锁加工台！');
+        updateMessages();
+    } else if (gameData.workshop.unlocked) {
+        // 确保加工台已解锁但电池槽为0的情况也能正常工作
+        if (gameData.workshop.batterySlot === 0) {
+            gameData.workshop.batterySlot = 1;
+            addMessage('加工台电池槽已修复！现在可以安装电池供能。');
+            updateWorkshopUI();
+            saveGame();
+        } else {
+            addMessage('加工台已经解锁了！');
+        }
+        updateMessages();
+    }
+}
+
+// 制作铜铁合金线
+function craftBatteryWire() {
+    // 检查电池能量
+    if (!hasEnoughBatteryEnergy(1)) {
+        addMessage('电池能量不足，无法制作铜铁合金线！');
+        updateMessages();
+        return;
+    }
+    
+    const materials = {
+        '铜铁合金': 1
+    };
+    
+    let canCraft = true;
+    for (const [material, amount] of Object.entries(materials)) {
+        if (!hasEnoughItem(material, amount)) {
+            canCraft = false;
+            break;
+        }
+    }
+    
+    if (canCraft) {
+        for (const [material, amount] of Object.entries(materials)) {
+            consumeItem(material, amount);
+        }
+        
+        // 消耗电池能量
+        consumeBatteryEnergy(1);
+        
+        // 将铜铁合金线添加到背包中
+        addToBackpack('铜铁合金线');
+        
+        // 更新加工台状态
+        gameData.workshop.itemsCrafted++;
+        
+        addMessage('铜铁合金线制作成功！');
+        updateMessages();
+        updateBackpackDisplay();
+        updateWorkshopUI();
+    } else {
+        addMessage('材料不足，无法制作铜铁合金线！');
+        updateMessages();
+    }
+}
+
+// 检查电池能量是否足够
+function hasEnoughBatteryEnergy(amount) {
+    // 检查是否有电池槽
+    if (gameData.workshop.batterySlot <= 0) {
+        return false;
+    }
+    // 检查能量是否足够
+    return gameData.workshop.batteryEnergy >= amount;
+}
+
+// 消耗电池能量
+function consumeBatteryEnergy(amount) {
+    gameData.workshop.batteryEnergy -= amount;
+    // 如果能量不足，检查是否有备用电池
+    if (gameData.workshop.batteryEnergy < 0) {
+        gameData.workshop.batteryEnergy = 0;
+    }
+    // 更新加工台UI
+    updateWorkshopUI();
+}
+
+// 更新配方信息显示
+function updateRecipeInfo() {
+    const recipeSelect = document.getElementById('recipe-select');
+    const recipeDetails = document.getElementById('recipe-details');
+    
+    if (recipeSelect && recipeDetails) {
+        const selectedRecipe = recipeSelect.value;
+        const recipe = workshopRecipes[selectedRecipe];
+        
+        if (recipe) {
+            // 生成材料列表HTML
+            let materialsHTML = '<ul>';
+            for (const [material, amount] of Object.entries(recipe.materials)) {
+                const currentAmount = getCurrentItemCount(material);
+                const hasEnough = currentAmount >= amount;
+                materialsHTML += `<li style="color: ${hasEnough ? 'green' : 'red'}">${material}: ${amount} (当前: ${currentAmount})</li>`;
+            }
+            materialsHTML += '</ul>';
+            
+            // 计算总能量需求
+            const quantityInput = document.getElementById('craft-quantity');
+            const quantity = quantityInput ? parseInt(quantityInput.value) : 1;
+            const totalEnergyRequired = recipe.energy * quantity;
+            
+            // 生成配方信息HTML
+            recipeDetails.innerHTML = `
+                <h5>${selectedRecipe}</h5>
+                <p>${recipe.description}</p>
+                <h6>所需材料:</h6>
+                ${materialsHTML}
+                <p>能量需求: ${totalEnergyRequired} (当前能量: ${gameData.workshop.batteryEnergy})</p>
+            `;
+        } else {
+            recipeDetails.innerHTML = '<p>请选择一个配方查看详细信息</p>';
+        }
+    }
+}
+
+// 加工台物品制作函数
+function craftWorkshopItem() {
+    const recipeSelect = document.getElementById('recipe-select');
+    const quantityInput = document.getElementById('craft-quantity');
+    
+    if (recipeSelect && quantityInput) {
+        const selectedRecipe = recipeSelect.value;
+        const quantity = parseInt(quantityInput.value);
+        const recipe = workshopRecipes[selectedRecipe];
+        
+        if (recipe) {
+            // 检查电池能量
+            const totalEnergyRequired = recipe.energy * quantity;
+            if (!hasEnoughBatteryEnergy(totalEnergyRequired)) {
+                addMessage(`电池能量不足，需要${totalEnergyRequired}点能量！`);
+                updateMessages();
+                return;
+            }
+            
+            // 检查材料
+            let canCraft = true;
+            let missingMaterials = [];
+            for (const [material, amount] of Object.entries(recipe.materials)) {
+                const requiredAmount = amount * quantity;
+                if (!hasEnoughItem(material, requiredAmount)) {
+                    canCraft = false;
+                    missingMaterials.push(`${material}: ${requiredAmount}`);
+                }
+            }
+            
+            if (canCraft) {
+                // 消耗材料
+                for (const [material, amount] of Object.entries(recipe.materials)) {
+                    consumeItem(material, amount * quantity);
+                }
+                
+                // 消耗电池能量
+                for (let i = 0; i < quantity; i++) {
+                    consumeBatteryEnergy(recipe.energy);
+                }
+                
+                // 添加制作的物品到背包
+                if (selectedRecipe === '优化头灯' || selectedRecipe === '优化矿车') {
+                    // 工具优化不需要添加物品到背包，而是直接更新工具状态
+                    if (selectedRecipe === '优化头灯') {
+                        gameData.tools.headlight.level += 1;
+                        addMessage('头灯优化成功！');
+                    } else if (selectedRecipe === '优化矿车') {
+                        const oldLevel = gameData.tools.cart.level;
+                        gameData.tools.cart.level += 1;
+                        const newBonus = Math.floor(gameData.tools.cart.level / 5);
+                        const oldBonus = Math.floor(oldLevel / 5);
+                        if (newBonus > oldBonus) {
+                            addMessage(`矿车优化成功！等级提升至${gameData.tools.cart.level}级，采矿数量+1个，现在每次采矿可获得${1 + newBonus}个矿物！`);
+                        } else {
+                            addMessage(`矿车优化成功！等级提升至${gameData.tools.cart.level}级，距离下次采矿数量提升还需${5 - (gameData.tools.cart.level % 5)}级！`);
+                        }
+                    }
+                } else {
+                    // 添加物品到背包
+                    for (let i = 0; i < quantity; i++) {
+                        addToBackpack(selectedRecipe);
+                    }
+                    addMessage(`${selectedRecipe}制作成功！`);
+                }
+                
+                // 更新加工台状态
+                gameData.workshop.itemsCrafted += quantity;
+                
+                updateMessages();
+                updateBackpackDisplay();
+                updateWorkshopUI();
+                saveGame();
+            } else {
+                addMessage(`材料不足，无法制作${selectedRecipe}！缺少: ${missingMaterials.join(', ')}`);
+                updateMessages();
+            }
+        }
+    }
+}
+
+// 添加燃料到矿车燃料舱
+function addCartFuel() {
+    if (gameData.tools.cart && gameData.tools.cart.crafted) {
+        const fuelType = gameData.tools.cart.fuelType || 'coal';
+        const fuelItem = fuelType === 'coal' ? '煤矿' : '燃料';
+        
+        // 检查背包中是否有燃料
+        if (hasEnoughItem(fuelItem, 1)) {
+            // 计算可以添加的燃料量
+            const fuelCapacity = gameData.tools.cart.fuelCapacity || 50;
+            const currentFuel = gameData.tools.cart.currentFuel || 0;
+            const fuelNeeded = fuelCapacity - currentFuel;
+            
+            if (fuelNeeded > 0) {
+                // 消耗1个燃料
+                consumeItem(fuelItem, 1);
+                
+                // 根据燃料类型添加相应的燃料量
+                let fuelToAdd = 1;
+                if (fuelType === 'fuel') {
+                    fuelToAdd = 50; // 高级燃料提供50次消耗
+                }
+                
+                // 更新燃料舱
+                gameData.tools.cart.currentFuel = Math.min(currentFuel + fuelToAdd, fuelCapacity);
+                
+                // 恢复矿车使用状态
+                if (!gameData.tools.cart.active) {
+                    gameData.tools.cart.active = true;
+                    addMessage('矿车已恢复使用！');
+                }
+                
+                addMessage(`成功添加${fuelItem}到燃料舱！当前燃料：${gameData.tools.cart.currentFuel}/${fuelCapacity}`);
+                updateMessages();
+                updateUI();
+                saveGame();
+            } else {
+                addMessage('燃料舱已满，无法添加更多燃料！');
+                updateMessages();
+            }
+        } else {
+            addMessage(`背包中没有${fuelItem}！`);
+            updateMessages();
+        }
+    } else {
+        alert('矿车尚未制作！');
+    }
+}
+
+// 安装电池到加工台
+function installBattery() {
+    // 检查并修复电池槽
+    if (gameData.workshop.batterySlot <= 0) {
+        gameData.workshop.batterySlot = 1;
+        addMessage('加工台电池槽已修复！现在可以安装电池供能。');
+        updateMessages();
+        saveGame();
+    }
+    
+    if (hasEnoughItem('电池', 1)) {
+        // 检查当前能量是否已满
+        if (gameData.workshop.batteryEnergy >= gameData.workshop.maxBatteryEnergy) {
+            addMessage('电池能量已满，无法安装更多电池！');
+            updateMessages();
+            return;
+        }
+        
+        // 消耗电池
+        consumeItem('电池', 1);
+        // 增加能量，但不超过最大值
+        const energyToAdd = 50; // 1个电池提供50点能量
+        gameData.workshop.batteryEnergy = Math.min(gameData.workshop.batteryEnergy + energyToAdd, gameData.workshop.maxBatteryEnergy);
+        addMessage('电池安装成功！获得50点能量。');
+        updateMessages();
+        updateBackpackDisplay();
+        updateWorkshopUI();
+        saveGame();
+    } else {
+        addMessage('没有足够的电池！');
+        updateMessages();
+    }
+}
+
+// 电池和燃料系统相关函数
+function craftBattery() {
+    // 检查电池能量
+    if (!hasEnoughBatteryEnergy(1)) {
+        addMessage('电池能量不足，无法制作电池！');
+        updateMessages();
+        return;
+    }
+    
+    if (!gameData.shop.unlockedBlueprints['电池图纸']) {
+        addMessage('未解锁电池图纸，无法制作电池！');
+        updateMessages();
+        return;
+    }
+    
+    const materials = {
+        '铜铁合金': 5,
+        '铜铁合金线': 20,
+        '棉布': 10
+    };
+    
+    let canCraft = true;
+    for (const [material, amount] of Object.entries(materials)) {
+        if (!hasEnoughItem(material, amount)) {
+            canCraft = false;
+            break;
+        }
+    }
+    
+    if (canCraft) {
+        for (const [material, amount] of Object.entries(materials)) {
+            consumeItem(material, amount);
+        }
+        
+        // 消耗电池能量
+        consumeBatteryEnergy(1);
+        
+        // 将电池添加到背包中
+        addToBackpack('电池');
+        
+        // 更新加工台状态
+        gameData.workshop.itemsCrafted++;
+        
+        addMessage('电池制作成功！');
+        updateMessages();
+        updateBackpackDisplay();
+        updateWorkshopUI();
+    } else {
+        addMessage('材料不足，无法制作电池！');
+        updateMessages();
+    }
+}
+
+function craftFuel() {
+    // 检查电池能量
+    if (!hasEnoughBatteryEnergy(1)) {
+        addMessage('电池能量不足，无法制作燃料！');
+        updateMessages();
+        return;
+    }
+    
+    if (!gameData.shop.unlockedBlueprints['燃料配方']) {
+        addMessage('未解锁燃料配方，无法制作燃料！');
+        updateMessages();
+        return;
+    }
+    
+    const materials = {
+        '木材': 10,
+        '棉布': 10,
+        '煤矿': 5
+    };
+    
+    let canCraft = true;
+    for (const [material, amount] of Object.entries(materials)) {
+        if (!hasEnoughItem(material, amount)) {
+            canCraft = false;
+            break;
+        }
+    }
+    
+    if (canCraft) {
+        for (const [material, amount] of Object.entries(materials)) {
+            consumeItem(material, amount);
+        }
+        
+        // 消耗电池能量
+        consumeBatteryEnergy(1);
+        
+        // 将燃料添加到背包中
+        addToBackpack('燃料');
+        
+        // 更新加工台状态
+        gameData.workshop.itemsCrafted++;
+        
+        addMessage('燃料制作成功！');
+        updateMessages();
+        updateBackpackDisplay();
+        updateWorkshopUI();
+    } else {
+        addMessage('材料不足，无法制作燃料！');
+        updateMessages();
+    }
+}
+
+// 工具优化相关函数
+function optimizeTool(toolName) {
+    if (toolName === 'headlight') {
+        // 优化头灯
+        const materials = {
+            '铜铁合金': 1,
+            '铜矿': 10,
+            '尼龙布': 10
+        };
+        
+        let canOptimize = true;
+        for (const [material, amount] of Object.entries(materials)) {
+            if (!gameData.backpack.items[material] || gameData.backpack.items[material] < amount) {
+                canOptimize = false;
+                break;
+            }
+        }
+        
+        if (canOptimize) {
+            for (const [material, amount] of Object.entries(materials)) {
+                gameData.backpack.items[material] -= amount;
+                if (gameData.backpack.items[material] <= 0) {
+                    delete gameData.backpack.items[material];
+                }
+            }
+            
+            // 标记头灯已优化
+            gameData.tools.headlight.optimized = true;
+            addMessage('头灯优化成功！解锁电池仓1个。');
+            updateMessages();
+            generateBackpack();
+        } else {
+            addMessage('材料不足，无法优化头灯！');
+            updateMessages();
+        }
+    } else if (toolName === 'cart') {
+        // 优化矿车
+        const materials = {
+            '铜铁合金': 1,
+            '铁矿': 15,
+            '木材': 10
+        };
+        
+        let canOptimize = true;
+        for (const [material, amount] of Object.entries(materials)) {
+            if (!gameData.backpack.items[material] || gameData.backpack.items[material] < amount) {
+                canOptimize = false;
+                break;
+            }
+        }
+        
+        if (canOptimize) {
+            for (const [material, amount] of Object.entries(materials)) {
+                gameData.backpack.items[material] -= amount;
+                if (gameData.backpack.items[material] <= 0) {
+                    delete gameData.backpack.items[material];
+                }
+            }
+            
+            // 标记矿车已优化
+            gameData.tools.cart.optimized = true;
+            addMessage('矿车优化成功！解锁燃料箱1个。');
+            updateMessages();
+            generateBackpack();
+        } else {
+            addMessage('材料不足，无法优化矿车！');
+            updateMessages();
+        }
+    }
+}
+
+// 消耗品不可出售的限制
+function isConsumable(itemName) {
+    const consumables = ['电池', '燃料', '木材'];
+    return consumables.includes(itemName);
+}
+
+// 更新商店倒计时
+setInterval(updateShopCountdown, 1000);
+
+// 添加商店刷新按钮事件监听器
+document.addEventListener('DOMContentLoaded', function() {
+    const refreshShopBtn = document.getElementById('refresh-shop');
+    if (refreshShopBtn) {
+        refreshShopBtn.addEventListener('click', manualRefreshShop);
+    }
+});
 
 window.addEventListener('DOMContentLoaded', initGame);
 
