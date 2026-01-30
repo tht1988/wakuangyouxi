@@ -32,7 +32,7 @@
         <div class="tools-info">
             <h2>工具信息</h2>
             <div class="info-item">采矿锄: <span id="pickaxe-level">lv0</span> (<span id="pickaxe-exp">0</span>/<span id="pickaxe-next-exp">50</span>) <button id="upgrade-pickaxe" style="margin-left: 10px; padding: 2px 8px; font-size: 0.8em;">升级工具</button></div>
-            <div class="info-item">矿车: <span id="cart-status">未制作</span> <button id="toggle-cart" style="margin-left: 10px; padding: 2px 8px; font-size: 0.8em;">暂停使用</button> <button id="upgrade-cart" style="margin-left: 10px; padding: 2px 8px; font-size: 0.8em;">升级工具</button></div>
+            <div class="info-item">矿车: <span id="cart-status">未制作</span> <button id="toggle-cart" style="margin-left: 10px; padding: 2px 8px; font-size: 0.8em;">暂停使用</button> <button id="upgrade-cart" style="margin-left: 10px; padding: 2px 8px; font-size: 0.8em;">升级工具</button> <select id="cart-fuel-type" style="margin-left: 10px; padding: 2px 5px; font-size: 0.8em;"><option value="coal">煤矿燃料</option><option value="fuel">高级燃料</option></select> <button id="add-cart-fuel" style="margin-left: 10px; padding: 2px 8px; font-size: 0.8em;">添加燃料</button></div>
             <div class="info-item">头灯: <span id="headlight-status">未制作</span> <button id="toggle-headlight" style="margin-left: 10px; padding: 2px 8px; font-size: 0.8em;">暂停使用</button> <button id="upgrade-headlight" style="margin-left: 10px; padding: 2px 8px; font-size: 0.8em;">升级工具</button></div>
         </div>
 
@@ -60,12 +60,14 @@
                 <div class="sell-panel" id="sell-panel">
                     <h3>出售物品</h3>
                     <select id="sell-item"></select>
+                    <label for="sell-amount">数量:</label>
                     <input type="number" id="sell-amount" min="1" max="20" value="1">
                     <button id="confirm-sell">确认出售</button>
                 </div>
                 <div class="disassemble-panel" id="disassemble-panel">
                     <h3>拆解物品</h3>
                     <select id="disassemble-item"></select>
+                    <label for="disassemble-amount">数量:</label>
                     <input type="number" id="disassemble-amount" min="1" max="20" value="1">
                     <button id="confirm-disassemble">确认拆解</button>
                 </div>
@@ -126,7 +128,7 @@
                                         </div>
                                     </div>
                                     <div class="smelt-amount" style="margin-top: 10px;">
-                                        <label>制作数量:</label>
+                                        <label for="smelt-amount">制作数量:</label>
                                         <input type="number" id="smelt-amount" min="1" max="10" value="1" style="padding: 5px; border: 1px solid #ddd; border-radius: 3px;">
                                     </div>
                                     <button id="confirm-smelt">确认融石</button>
@@ -148,7 +150,7 @@
                                         </div>
                                     </div>
                                     <div class="alloy-amount" style="margin-top: 10px;">
-                                        <label>制作数量:</label>
+                                        <label for="alloy-amount">制作数量:</label>
                                         <input type="number" id="alloy-amount" min="1" max="10" value="1" style="padding: 5px; border: 1px solid #ddd; border-radius: 3px;">
                                     </div>
                                     <button id="confirm-alloy" style="margin-top: 10px;">制作合金</button>
@@ -184,6 +186,36 @@
                         </div>
                     </div>
                     <button id="craft-furnace">制作熔炉 (石矿20)</button>
+                </div>
+            </div>
+
+            <!-- 加工台系统 -->
+            <div class="workshop" id="workshop" style="display: block;">
+                <h2>加工台 (状态: <span id="workshop-status">未解锁</span>)</h2>
+                <div class="workshop-controls">
+                    <button id="unlock-workshop">解锁加工台 (需要等级15和加工台图纸)</button>
+                </div>
+                <div class="workshop-items" id="workshop-items">
+                    <!-- 加工台物品将通过JavaScript动态生成 -->
+                    <p>加工台未解锁，需要等级15和加工台图纸</p>
+                </div>
+            </div>
+
+            <!-- 商店系统 -->
+            <div class="shop" id="shop" style="display: none;">
+                <h2>商店 (等级: <span id="shop-level">1</span>)</h2>
+                <div class="shop-info">
+                    <div class="refresh-info">
+                        <span>自动刷新: <span id="shop-countdown">3:00</span></span>
+                        <div class="refresh-progress">
+                            <div class="refresh-progress-bar" id="shop-progress"></div>
+                        </div>
+                        <button id="refresh-shop">刷新 (1000金币)</button>
+                    </div>
+                </div>
+                <div class="shop-items" id="shop-items">
+                    <!-- 商品将通过JavaScript动态生成 -->
+                    <p>商店未解锁，玩家等级达到10级后开启</p>
                 </div>
             </div>
         </div>
