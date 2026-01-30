@@ -24,13 +24,15 @@ let gameData = {
             crafted: false,
             level: 0,
             exp: 0,
-            fuelTank: false // 燃料箱解锁状态
+            fuelTank: false, // 燃料箱解锁状态
+            optimized: false // 优化标记，只能优化一次
         },
         headlight: {
             crafted: false,
             level: 0,
             exp: 0,
-            batterySlot: false // 电池仓解锁状态
+            batterySlot: false, // 电池仓解锁状态
+            optimized: false // 优化标记，只能优化一次
         }
     },
     furnace: {
@@ -2950,15 +2952,17 @@ function smeltStone(amount = 1) {
     
     coalCost = Math.max(1, Math.floor(coalCost));
     
-    if (!consumeItem('石矿', stoneCost)) {
+    // 1. 先检查材料是否足够（不实际消耗）
+    if (!hasEnoughItem('石矿', stoneCost)) {
         alert(`材料不足！需要石矿${stoneCost}`);
         return;
     }
-    if (!consumeItem('煤矿', coalCost)) {
+    if (!hasEnoughItem('煤矿', coalCost)) {
         alert(`材料不足！需要煤矿${coalCost}`);
         return;
     }
     
+    // 2. 检查背包空间是否足够
     const itemEntries = Object.entries(gameData.backpack.items);
     let hasSpace = false;
     for (const [name, count] of itemEntries) {
@@ -2972,13 +2976,17 @@ function smeltStone(amount = 1) {
         hasSpace = true;
     }
     if (!hasSpace) {
-        for (let i = 0; i < stoneCost; i++) {
-            addToBackpack('石矿');
-        }
-        for (let i = 0; i < coalCost; i++) {
-            addToBackpack('煤矿');
-        }
         alert('背包已满，无法融石！');
+        return;
+    }
+    
+    // 3. 所有检查通过后，才消耗材料
+    if (!consumeItem('石矿', stoneCost)) {
+        alert(`材料不足！需要石矿${stoneCost}`);
+        return;
+    }
+    if (!consumeItem('煤矿', coalCost)) {
+        alert(`材料不足！需要煤矿${coalCost}`);
         return;
     }
     
@@ -3537,6 +3545,15 @@ function ensureGameDataIntegrity() {
         if (gameData.tools.headlight.nextExp === undefined) {
             gameData.tools.headlight.nextExp = 50;
         }
+        if (gameData.tools.headlight.optimized === undefined) {
+            gameData.tools.headlight.optimized = false;
+        }
+    }
+    // 确保矿车属性完整
+    if (gameData.tools.cart) {
+        if (gameData.tools.cart.optimized === undefined) {
+            gameData.tools.cart.optimized = false;
+        }
     }
     if (!gameData.furnace) {
         gameData.furnace = {
@@ -3938,9 +3955,9 @@ function refreshShopItems() {
     
     // 物品池
     const itemPool = [
-        { name: '加工台图纸', price: 1000, probability: 0.5, isBlueprint: true },
-        { name: '电池图纸', price: 1000, probability: 0.3, isBlueprint: true },
-        { name: '燃料配方', price: 1000, probability: 0.3, isBlueprint: true },
+        { name: '加工台图纸', price: 1000, probability: 0.1, isBlueprint: true },
+        { name: '电池图纸', price: 1000, probability: 0.1, isBlueprint: true },
+        { name: '燃料配方', price: 1000, probability: 0.1, isBlueprint: true },
         { name: '棉布*10', price: 40, probability: 0.2 },
         { name: '织布*10', price: 80, probability: 0.2 },
         { name: '粗麻布*10', price: 120, probability: 0.2 },
@@ -4009,8 +4026,8 @@ function refreshShopItems() {
         if (availableItems.length > 0) {
             // 优先选择加工台图纸（如果可用）
             const workshopBlueprint = availableItems.find(item => item.name === '加工台图纸');
-            if (workshopBlueprint && Math.random() < 0.7) {
-                // 70%的概率选择加工台图纸
+            if (workshopBlueprint && Math.random() < 0.3) {
+                // 30%的概率选择加工台图纸
                 items.push({ name: workshopBlueprint.name, price: workshopBlueprint.price });
             } else {
                 // 否则随机选择
@@ -4038,8 +4055,8 @@ function refreshShopItems() {
         if (availableItems.length > 0) {
             // 优先选择加工台图纸（如果可用）
             const workshopBlueprint = availableItems.find(item => item.name === '加工台图纸');
-            if (workshopBlueprint && Math.random() < 0.7) {
-                // 70%的概率选择加工台图纸
+            if (workshopBlueprint && Math.random() < 0.3) {
+                // 30%的概率选择加工台图纸
                 items.push({ name: workshopBlueprint.name, price: workshopBlueprint.price });
             } else {
                 // 否则随机选择
@@ -4469,6 +4486,25 @@ function craftWorkshopItem() {
                 return;
             }
             
+            // 先检查工具是否已经优化过（针对优化头灯和优化矿车）
+            if (selectedRecipe === '优化头灯' || selectedRecipe === '优化矿车') {
+                if (selectedRecipe === '优化头灯') {
+                    // 检查是否已经优化过
+                    if (gameData.tools.headlight.optimized) {
+                        addMessage('头灯已经优化过了，只能优化一次！');
+                        updateMessages();
+                        return;
+                    }
+                } else if (selectedRecipe === '优化矿车') {
+                    // 检查是否已经优化过
+                    if (gameData.tools.cart.optimized) {
+                        addMessage('矿车已经优化过了，只能优化一次！');
+                        updateMessages();
+                        return;
+                    }
+                }
+            }
+            
             // 检查材料
             let canCraft = true;
             let missingMaterials = [];
@@ -4496,10 +4532,12 @@ function craftWorkshopItem() {
                     // 工具优化不需要添加物品到背包，而是直接更新工具状态
                     if (selectedRecipe === '优化头灯') {
                         gameData.tools.headlight.level += 1;
+                        gameData.tools.headlight.optimized = true; // 标记为已优化
                         addMessage('头灯优化成功！');
                     } else if (selectedRecipe === '优化矿车') {
                         const oldLevel = gameData.tools.cart.level;
                         gameData.tools.cart.level += 1;
+                        gameData.tools.cart.optimized = true; // 标记为已优化
                         const newBonus = Math.floor(gameData.tools.cart.level / 5);
                         const oldBonus = Math.floor(oldLevel / 5);
                         if (newBonus > oldBonus) {
