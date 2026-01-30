@@ -1074,16 +1074,20 @@ function completeMining(mineral) {
             }
         } else {
             // 使用高级燃料：消耗燃料舱中的燃料次数
-            if (gameData.tools.cart.currentFuel > 0) {
+            if (gameData.tools.cart.optimized && gameData.tools.cart.currentFuel > 0) {
                 // 消耗1点燃料
                 gameData.tools.cart.currentFuel -= 1;
                 // 矿车初始采矿数量+1，每5级再提升1个采矿数量
                 const cartBonus = 1 + Math.floor(gameData.tools.cart.level / 5);
                 baseAmount = 1 + cartBonus;
             } else {
-                // 燃料不足，自动停用矿车
+                // 燃料不足或矿车未优化，自动停用矿车
                 gameData.tools.cart.active = false;
-                addMessage('燃料舱燃料不足，矿车已自动停止使用！请添加高级燃料。');
+                if (!gameData.tools.cart.optimized) {
+                    addMessage('矿车尚未优化！需要先在加工台优化矿车才能使用高级燃料。');
+                } else {
+                    addMessage('燃料舱燃料不足，矿车已自动停止使用！请添加高级燃料。');
+                }
             }
         }
     }
@@ -1690,8 +1694,13 @@ function updateUI() {
     const addCartFuelBtn = document.getElementById('add-cart-fuel');
     if (cartFuelTypeSelect) {
         if (gameData.tools.cart.crafted) {
-            cartFuelTypeSelect.value = gameData.tools.cart.fuelType || 'coal';
-            cartFuelTypeSelect.disabled = false;
+            if (gameData.tools.cart.optimized) {
+                cartFuelTypeSelect.value = gameData.tools.cart.fuelType || 'coal';
+                cartFuelTypeSelect.disabled = false;
+            } else {
+                cartFuelTypeSelect.value = 'coal';
+                cartFuelTypeSelect.disabled = true;
+            }
         } else {
             cartFuelTypeSelect.value = 'coal';
             cartFuelTypeSelect.disabled = true;
@@ -1700,7 +1709,7 @@ function updateUI() {
     
     // 设置添加燃料按钮状态
     if (addCartFuelBtn) {
-        if (gameData.tools.cart.crafted) {
+        if (gameData.tools.cart.crafted && gameData.tools.cart.optimized) {
             addCartFuelBtn.disabled = false;
         } else {
             addCartFuelBtn.disabled = true;
@@ -2444,10 +2453,16 @@ function addEventListeners() {
     // 矿车燃料类型选择事件监听器
     document.getElementById('cart-fuel-type').addEventListener('change', function() {
         if (gameData.tools.cart && gameData.tools.cart.crafted) {
-            gameData.tools.cart.fuelType = this.value;
-            addMessage(`矿车燃料类型已切换为${this.value === 'coal' ? '煤矿' : '高级燃料'}！`);
-            updateMessages();
-            saveGame();
+            if (gameData.tools.cart.optimized) {
+                gameData.tools.cart.fuelType = this.value;
+                addMessage(`矿车燃料类型已切换为${this.value === 'coal' ? '煤矿' : '高级燃料'}！`);
+                updateMessages();
+                saveGame();
+            } else {
+                alert('矿车尚未优化！需要先在加工台优化矿车才能切换燃料类型。');
+                // 重置选择
+                this.value = 'coal';
+            }
         } else {
             alert('矿车尚未制作！');
             // 重置选择
@@ -4634,20 +4649,13 @@ function craftWorkshopItem() {
                 if (selectedRecipe === '优化头灯' || selectedRecipe === '优化矿车') {
                     // 工具优化不需要添加物品到背包，而是直接更新工具状态
                     if (selectedRecipe === '优化头灯') {
-                        gameData.tools.headlight.level += 1;
                         gameData.tools.headlight.optimized = true; // 标记为已优化
-                        addMessage('头灯优化成功！');
+                        gameData.tools.headlight.batterySlot = true; // 解锁电池仓
+                        addMessage('头灯优化成功！解锁电池仓1个。');
                     } else if (selectedRecipe === '优化矿车') {
-                        const oldLevel = gameData.tools.cart.level;
-                        gameData.tools.cart.level += 1;
                         gameData.tools.cart.optimized = true; // 标记为已优化
-                        const newBonus = Math.floor(gameData.tools.cart.level / 5);
-                        const oldBonus = Math.floor(oldLevel / 5);
-                        if (newBonus > oldBonus) {
-                            addMessage(`矿车优化成功！等级提升至${gameData.tools.cart.level}级，采矿数量+1个，现在每次采矿可获得${1 + newBonus}个矿物！`);
-                        } else {
-                            addMessage(`矿车优化成功！等级提升至${gameData.tools.cart.level}级，距离下次采矿数量提升还需${5 - (gameData.tools.cart.level % 5)}级！`);
-                        }
+                        gameData.tools.cart.fuelTank = true; // 解锁燃料箱
+                        addMessage('矿车优化成功！解锁燃料箱1个。');
                     }
                 } else {
                     // 添加物品到背包
@@ -4663,6 +4671,7 @@ function craftWorkshopItem() {
                 updateMessages();
                 updateBackpackDisplay();
                 updateWorkshopUI();
+                updateUI(); // 自动更新工具状态显示
                 saveGame();
             } else {
                 addMessage(`材料不足，无法制作${selectedRecipe}！缺少: ${missingMaterials.join(', ')}`);
@@ -4675,6 +4684,10 @@ function craftWorkshopItem() {
 // 添加燃料到矿车燃料舱
 function addCartFuel() {
     if (gameData.tools.cart && gameData.tools.cart.crafted) {
+        if (!gameData.tools.cart.optimized) {
+            alert('矿车尚未优化！需要先在加工台优化矿车才能添加燃料。');
+            return;
+        }
         const fuelType = gameData.tools.cart.fuelType || 'coal';
         const fuelItem = fuelType === 'coal' ? '煤矿' : '燃料';
         
@@ -4891,6 +4904,7 @@ function optimizeTool(toolName) {
             addMessage('头灯优化成功！解锁电池仓1个。');
             updateMessages();
             generateBackpack();
+            updateUI(); // 自动更新工具状态显示
         } else {
             addMessage('材料不足，无法优化头灯！');
             updateMessages();
@@ -4924,6 +4938,7 @@ function optimizeTool(toolName) {
             addMessage('矿车优化成功！解锁燃料箱1个。');
             updateMessages();
             generateBackpack();
+            updateUI(); // 自动更新工具状态显示
         } else {
             addMessage('材料不足，无法优化矿车！');
             updateMessages();
