@@ -54,6 +54,8 @@ let gameData = {
     unlockedRecipes: {}, // 存储已解锁的配方
     miningCount: {},
     selectedMineral: null,
+    // 物品过滤设置
+    filterSettings: {}, // 存储物品过滤设置，格式: {itemName: minAmount}
     // 商店系统
     shop: {
         unlocked: false,
@@ -2419,14 +2421,25 @@ function addEventListeners() {
         sellPanel.classList.toggle('active');
         updateSellPanel();
         document.getElementById('disassemble-panel').classList.remove('active');
+        document.getElementById('filter-panel').classList.remove('active');
     });
     document.getElementById('organize-btn').addEventListener('click', organizeBackpack);
+    document.getElementById('filter-btn').addEventListener('click', () => {
+        const filterPanel = document.getElementById('filter-panel');
+        filterPanel.classList.toggle('active');
+        updateFilterPanel();
+        document.getElementById('sell-panel').classList.remove('active');
+        document.getElementById('disassemble-panel').classList.remove('active');
+    });
     document.getElementById('disassemble-btn').addEventListener('click', () => {
         const disassemblePanel = document.getElementById('disassemble-panel');
         disassemblePanel.classList.toggle('active');
         updateDisassemblePanel();
         document.getElementById('sell-panel').classList.remove('active');
+        document.getElementById('filter-panel').classList.remove('active');
     });
+    document.getElementById('confirm-filter').addEventListener('click', applyFilter);
+    document.getElementById('remove-filter').addEventListener('click', removeFilter);
     document.getElementById('confirm-sell').addEventListener('click', sellItem);
     document.getElementById('confirm-disassemble').addEventListener('click', disassembleItem);
     document.getElementById('craft-cart').addEventListener('click', craftCart);
@@ -3873,6 +3886,10 @@ function ensureGameDataIntegrity() {
     if (!gameData.backpack.expansionSlots) {
         gameData.backpack.expansionSlots = [];
     }
+    // 确保物品过滤设置存在
+    if (!gameData.filterSettings) {
+        gameData.filterSettings = {};
+    }
     // 强制设置maxExpansionSlots为12，无论旧存档中是什么值
     gameData.backpack.maxExpansionSlots = 12;
     while (gameData.backpack.expansionSlots.length < gameData.backpack.maxExpansionSlots) {
@@ -4128,6 +4145,215 @@ function updateDisassemblePanel() {
         option.textContent = expansionName;
         disassembleItemSelect.appendChild(option);
     });
+}
+
+// 更新过滤面板
+function updateFilterPanel() {
+    const filterItemSelect = document.getElementById('filter-item');
+    filterItemSelect.innerHTML = '';
+    
+    // 获取背包中的所有物品
+    const itemsInBackpack = [];
+    for (const [itemName, count] of Object.entries(gameData.backpack.items)) {
+        const baseName = itemName.split('_')[0];
+        if (!itemsInBackpack.includes(baseName)) {
+            itemsInBackpack.push(baseName);
+        }
+    }
+    
+    // 获取已设置过滤的物品
+    const filteredItems = Object.keys(gameData.filterSettings);
+    
+    // 合并所有物品，去重
+    const allItems = [...new Set([...itemsInBackpack, ...filteredItems])];
+    
+    // 添加选项
+    allItems.forEach(itemName => {
+        const option = document.createElement('option');
+        option.value = itemName;
+        option.textContent = itemName;
+        filterItemSelect.appendChild(option);
+    });
+    
+    // 更新过滤设置显示
+    updateFilterSettingsDisplay();
+}
+
+// 更新过滤设置显示
+function updateFilterSettingsDisplay() {
+    const filterSettingsDiv = document.getElementById('filter-settings');
+    if (!filterSettingsDiv) return;
+    
+    if (Object.keys(gameData.filterSettings).length === 0) {
+        filterSettingsDiv.innerHTML = '<p>暂无过滤设置</p>';
+        return;
+    }
+    
+    let html = '<h4>当前过滤设置：</h4>';
+    for (const [itemName, minAmount] of Object.entries(gameData.filterSettings)) {
+        html += `<p>${itemName}: 保留至少 ${minAmount} 个</p>`;
+    }
+    filterSettingsDiv.innerHTML = html;
+}
+
+// 应用过滤设置
+function applyFilter() {
+    const filterItemSelect = document.getElementById('filter-item');
+    const filterMinAmountInput = document.getElementById('filter-min-amount');
+    
+    const selectedItem = filterItemSelect.value;
+    const minAmount = parseInt(filterMinAmountInput.value) || 0;
+    
+    if (!selectedItem) {
+        alert('请选择要过滤的物品！');
+        return;
+    }
+    
+    // 保存过滤设置
+    gameData.filterSettings[selectedItem] = minAmount;
+    
+    // 应用过滤，自动出售多余的物品
+    executeFilter();
+    
+    // 更新过滤设置显示
+    updateFilterSettingsDisplay();
+    
+    // 显示成功消息
+    addMessage(`已设置 ${selectedItem} 的最小保留数量为 ${minAmount}`);
+    updateMessages();
+    
+    // 确保UI更新
+    updateUI();
+    updateBackpackDisplay();
+    saveGame();
+}
+
+// 移除过滤设置
+function removeFilter() {
+    const filterItemSelect = document.getElementById('filter-item');
+    const selectedItem = filterItemSelect.value;
+    
+    if (!selectedItem) {
+        alert('请选择要移除的过滤物品！');
+        return;
+    }
+    
+    // 检查该物品是否有过滤设置
+    if (!gameData.filterSettings[selectedItem]) {
+        alert('该物品没有过滤设置！');
+        return;
+    }
+    
+    // 移除过滤设置
+    delete gameData.filterSettings[selectedItem];
+    
+    // 更新过滤设置显示
+    updateFilterSettingsDisplay();
+    
+    // 显示成功消息
+    addMessage(`已移除 ${selectedItem} 的过滤设置`);
+    updateMessages();
+    
+    // 确保UI更新
+    updateUI();
+    saveGame();
+}
+
+// 执行过滤，自动出售多余的物品
+function executeFilter() {
+    // 遍历所有过滤设置
+    for (const [itemName, minAmount] of Object.entries(gameData.filterSettings)) {
+        // 计算背包中该物品的总数量
+        let totalCount = 0;
+        for (const [backpackItemName, count] of Object.entries(gameData.backpack.items)) {
+            const baseName = backpackItemName.split('_')[0];
+            if (baseName === itemName) {
+                totalCount += count;
+            }
+        }
+        
+        // 计算需要出售的数量
+        if (totalCount > minAmount) {
+            const sellAmount = totalCount - minAmount;
+            // 自动出售多余的物品
+            sellItemAutomatically(itemName, sellAmount);
+        }
+    }
+}
+
+// 自动出售物品
+function sellItemAutomatically(itemName, amount) {
+    let totalSold = 0;
+    let totalEarned = 0;
+    
+    // 遍历背包中的物品
+    for (const [backpackItemName, count] of Object.entries(gameData.backpack.items)) {
+        const baseName = backpackItemName.split('_')[0];
+        if (baseName === itemName) {
+            // 计算可以从这个堆叠中出售的数量
+            const sellFromStack = Math.min(count, amount - totalSold);
+            if (sellFromStack > 0) {
+                // 计算出售价格
+                const itemPrice = getItemPrice(itemName);
+                const stackEarned = sellFromStack * itemPrice;
+                totalEarned += stackEarned;
+                
+                // 减少背包中的物品数量
+                gameData.backpack.items[backpackItemName] -= sellFromStack;
+                if (gameData.backpack.items[backpackItemName] <= 0) {
+                    delete gameData.backpack.items[backpackItemName];
+                }
+                
+                totalSold += sellFromStack;
+            }
+            
+            if (totalSold >= amount) {
+                break;
+            }
+        }
+    }
+    
+    // 更新金币
+    if (totalSold > 0) {
+        gameData.player.gold += totalEarned;
+        
+        // 显示出售消息
+        addMessage(`自动出售 ${itemName} × ${totalSold}，获得 ${totalEarned} 金币`);
+        updateMessages();
+        
+        // 更新UI
+        updateUI();
+        updateBackpackDisplay();
+        saveGame();
+    }
+}
+
+// 检查物品是否为消耗品
+function isConsumable(itemName) {
+    const consumables = ['电池', '燃料'];
+    return consumables.includes(itemName);
+}
+
+// 获取物品价格
+function getItemPrice(itemName) {
+    // 检查是否是矿物
+    const mineral = minerals.find(m => m.name === itemName);
+    if (mineral) {
+        return mineral.price;
+    }
+    
+    // 检查是否是其他物品
+    switch (itemName) {
+        case '棉布': return 1;
+        case '织布': return 2;
+        case '粗麻布': return 3;
+        case '尼龙布': return 5;
+        case '铜铁合金': return 54;
+        case '铜钴合金': return 78;
+        case '铜镍合金': return 87;
+        case '铜银合金': return 96;
+        default: return 0;
+    }
 }
 
 // 商店系统相关函数
