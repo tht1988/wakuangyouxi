@@ -32,8 +32,8 @@
         <div class="tools-info">
             <h2>工具信息</h2>
             <div class="info-item">采矿锄: <span id="pickaxe-level">lv0</span> (<span id="pickaxe-exp">0</span>/<span id="pickaxe-next-exp">50</span>) <button id="upgrade-pickaxe" style="margin-left: 10px; padding: 2px 8px; font-size: 0.8em;">升级工具</button></div>
-            <div class="info-item">矿车: <span id="cart-status">未制作</span> <button id="toggle-cart" style="margin-left: 10px; padding: 2px 8px; font-size: 0.8em;">暂停使用</button> <button id="upgrade-cart" style="margin-left: 10px; padding: 2px 8px; font-size: 0.8em;">升级工具</button> <select id="cart-fuel-type" style="margin-left: 10px; padding: 2px 5px; font-size: 0.8em;"><option value="coal">煤矿燃料</option><option value="fuel">高级燃料</option></select> <button id="add-cart-fuel" style="margin-left: 10px; padding: 2px 8px; font-size: 0.8em;">添加燃料</button> <div style="margin-top: 5px; font-size: 0.8em;"><span id="cart-fuel-countdown">0秒</span> <div style="width: 200px; height: 5px; background-color: #ddd; margin-top: 3px;"><div id="cart-fuel-progress" style="height: 100%; background-color: #4CAF50; width: 0%;"></div></div></div></div>
-            <div class="info-item">头灯: <span id="headlight-status">未制作</span> <button id="toggle-headlight" style="margin-left: 10px; padding: 2px 8px; font-size: 0.8em;">暂停使用</button> <button id="upgrade-headlight" style="margin-left: 10px; padding: 2px 8px; font-size: 0.8em;">升级工具</button> <select id="headlight-fuel-type" style="margin-left: 10px; padding: 2px 5px; font-size: 0.8em;"><option value="gold">金币燃料</option><option value="battery">电池燃料</option></select> <button id="install-headlight-battery" style="margin-left: 10px; padding: 2px 8px; font-size: 0.8em;">安装电池</button> <div style="margin-top: 5px; font-size: 0.8em;"><span id="headlight-fuel-countdown">0秒</span> <div style="width: 200px; height: 5px; background-color: #ddd; margin-top: 3px;"><div id="headlight-fuel-progress" style="height: 100%; background-color: #2196F3; width: 0%;"></div></div></div></div>
+            <div class="info-item">矿车: <span id="cart-status">未制作</span> <button id="toggle-cart" style="margin-left: 10px; padding: 2px 8px; font-size: 0.8em;">暂停使用</button> <button id="upgrade-cart" style="margin-left: 10px; padding: 2px 8px; font-size: 0.8em;">升级工具</button> <select id="cart-fuel-type" style="margin-left: 10px; padding: 2px 5px; font-size: 0.8em;"><option value="coal">煤矿</option><option value="fuel">燃料</option></select> <button id="add-cart-fuel" style="margin-left: 10px; padding: 2px 8px; font-size: 0.8em;">添加燃料</button> <div style="margin-top: 5px; font-size: 0.8em;"><span id="cart-fuel-countdown">0秒</span> <div style="width: 200px; height: 5px; background-color: #ddd; margin-top: 3px;"><div id="cart-fuel-progress" style="height: 100%; background-color: #4CAF50; width: 0%;"></div></div></div></div>
+            <div class="info-item">头灯: <span id="headlight-status">未制作</span> <button id="toggle-headlight" style="margin-left: 10px; padding: 2px 8px; font-size: 0.8em;">暂停使用</button> <button id="upgrade-headlight" style="margin-left: 10px; padding: 2px 8px; font-size: 0.8em;">升级工具</button> <select id="headlight-fuel-type" style="margin-left: 10px; padding: 2px 5px; font-size: 0.8em;"><option value="gold">金币</option><option value="battery">电池</option></select> <button id="install-headlight-battery" style="margin-left: 10px; padding: 2px 8px; font-size: 0.8em;">安装电池</button> <div style="margin-top: 5px; font-size: 0.8em;"><span id="headlight-fuel-countdown">0秒</span> <div style="width: 200px; height: 5px; background-color: #ddd; margin-top: 3px;"><div id="headlight-fuel-progress" style="height: 100%; background-color: #2196F3; width: 0%;"></div></div></div></div>
         </div>
 
         <!-- 矿物列表 -->
@@ -98,9 +98,31 @@
                 <h3>获得信息</h3>
                 <div class="gained-stats">
                     <div class="gained-stat">经验: <span id="gained-exp">0</span></div>
-                    <div class="gained-stat">金币: <span id="gained-gold">0</span></div>
                     <div class="gained-stat">矿物: <span id="gained-minerals">0</span></div>
                     <div class="gained-stat">布料: <span id="gained-cloth">0</span></div>
+                </div>
+                <div class="detailed-gained-info" style="margin-top: 10px; padding: 10px; background-color: #f0f0f0; border-radius: 5px;">
+                    <h4>详细获得信息</h4>
+                    <div id="detailed-gained-info-content">
+                        <!-- 详细获得信息将通过JavaScript动态生成 -->
+                        <p>暂无详细信息</p>
+                    </div>
+                </div>
+                <div class="auto-sell-info" style="margin-top: 10px; padding: 10px; background-color: #f0f0f0; border-radius: 5px;">
+                    <h4>自动出售信息</h4>
+                    <div class="auto-sell-stats">
+                        <div class="auto-sell-stat">自动出售获得金币: <span id="auto-sell-gold">0</span></div>
+                        <div id="auto-sell-items" style="margin-top: 5px;">
+                            <!-- 自动出售物品将通过JavaScript动态生成 -->
+                            <p>暂无自动出售记录</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="gained-actions" style="margin-top: 10px;">
+                    <button id="reset-gained-info" style="padding: 5px 10px; margin-right: 10px;">清空重置</button>
+                    <div class="afk-timer" style="display: inline-block; margin-left: 10px;">
+                        挂机时间: <span id="afk-timer">00:00:00</span>
+                    </div>
                 </div>
             </div>
             <!-- 滚动信息提示区 -->
@@ -131,19 +153,26 @@
                         <button id="smelt-stone">融石</button>
                         <div class="furnace-dropdown smelt-dropdown" id="smelt-dropdown" style="display: none;">
                             <div class="dropdown-content">
-                                <div class="dropdown-header">选择融石数量</div>
+                                <div class="dropdown-header">选择融石配方</div>
                                 <div class="dropdown-body">
+                                    <div class="smelt-recipe" style="margin-top: 10px;">
+                                        <label for="smelt-recipe">选择配方:</label>
+                                        <select id="smelt-recipe" style="padding: 5px; border: 1px solid #ddd; border-radius: 3px;">
+                                            <option value="石灰">石灰</option>
+                                            <option value="煤炭">煤炭</option>
+                                        </select>
+                                    </div>
                                     <div class="smelt-info" id="smelt-info" style="margin-top: 10px; padding: 10px; background-color: #f9f9f9; border-radius: 3px; border: 1px solid #ddd;">
-                                        <div class="smelt-info-header">融石属性</div>
+                                        <div class="smelt-info-header">配方属性</div>
                                         <div class="smelt-info-body" id="smelt-info-body">
-                                            <p>请输入制作数量</p>
+                                            <p>请选择一个配方</p>
                                         </div>
                                     </div>
                                     <div class="smelt-amount" style="margin-top: 10px;">
                                         <label for="smelt-amount">制作数量:</label>
                                         <input type="number" id="smelt-amount" min="1" max="10" value="1" style="padding: 5px; border: 1px solid #ddd; border-radius: 3px;">
                                     </div>
-                                    <button id="confirm-smelt">确认融石</button>
+                                    <button id="confirm-smelt">确认制作</button>
                                 </div>
                             </div>
                         </div>
@@ -203,7 +232,7 @@
 
             <!-- 加工台系统 -->
             <div class="workshop" id="workshop" style="display: block;">
-                <h2>加工台 (状态: <span id="workshop-status">未解锁</span>)</h2>
+                <h2>加工台 <span id="workshop-status">(未解锁)</span></h2>
                 <div class="workshop-controls">
                     <button id="unlock-workshop">解锁加工台 (需要等级15和加工台图纸)</button>
                 </div>
