@@ -76,7 +76,9 @@ let gameData = {
             '加工台图纸': false,
             '电池图纸': false,
             '燃料配方': false
-        }
+        },
+        // 记录上一次刷新是否出现了旅行背包
+        lastHadTravelBackpack: false
     },
     // 加工台系统
     workshop: {
@@ -116,6 +118,14 @@ const backpackExpansions = {
         materials: { '尼龙布': 50, '棉布包': 3, '织布包': 3, '粗麻布包': 3 },
         effect: { capacity: 10, stackSize: 20 },
         type: 'both'
+    },
+    '旅行背包': {
+        name: '旅行背包',
+        description: '增加500堆叠数量',
+        materials: {},
+        effect: { stackSize: 500 },
+        type: 'stack',
+        isSpecial: true
     }
 };
 
@@ -125,7 +135,7 @@ const minerals = [
         minLevel: 0,
         maxLevel: 5,
         baseTime: 5,
-        exp: 1,
+        exp: 5, // 提高5倍
         price: 2,
         drops: [
             { name: "棉布", chance: 0.3 },
@@ -137,7 +147,7 @@ const minerals = [
         minLevel: 5,
         maxLevel: 10,
         baseTime: 8,
-        exp: 3,
+        exp: 10, // 提高约3.3倍
         price: 5,
         drops: [
             { name: "织布", chance: 0.2 },
@@ -149,7 +159,7 @@ const minerals = [
         minLevel: 10,
         maxLevel: 15,
         baseTime: 10,
-        exp: 12,
+        exp: 20, // 提高约1.7倍
         price: 7,
         drops: [
             { name: "粗麻布", chance: 0.2 },
@@ -161,7 +171,7 @@ const minerals = [
         minLevel: 15,
         maxLevel: 20,
         baseTime: 15,
-        exp: 18,
+        exp: 30, // 提高约1.7倍
         price: 11,
         drops: [
             { name: "尼龙布", chance: 0.2 },
@@ -173,7 +183,7 @@ const minerals = [
         minLevel: 20,
         maxLevel: 25,
         baseTime: 20,
-        exp: 22,
+        exp: 40, // 提高约1.8倍
         price: 15,
         toolReq: 5,
         drops: [
@@ -185,7 +195,7 @@ const minerals = [
         minLevel: 25,
         maxLevel: 30,
         baseTime: 25,
-        exp: 25,
+        exp: 50, // 提高2倍
         price: 18,
         toolReq: 15
     },
@@ -194,7 +204,7 @@ const minerals = [
         minLevel: 30,
         maxLevel: 35,
         baseTime: 28,
-        exp: 29,
+        exp: 65, // 提高约2.2倍
         price: 21,
         toolReq: 15
     },
@@ -203,7 +213,7 @@ const minerals = [
         minLevel: 35,
         maxLevel: 40,
         baseTime: 33,
-        exp: 31,
+        exp: 80, // 提高约2.6倍
         price: 25,
         toolReq: 20
     },
@@ -212,8 +222,8 @@ const minerals = [
         minLevel: 40,
         maxLevel: 45,
         baseTime: 38,
-        exp: 35,
-        price: 29,
+        exp: 100, // 提高约2.9倍
+        price: 44, // 提高50%
         toolReq: 25
     },
     {
@@ -221,8 +231,8 @@ const minerals = [
         minLevel: 45,
         maxLevel: Infinity,
         baseTime: 41,
-        exp: 40,
-        price: 35,
+        exp: 130, // 提高约3.3倍
+        price: 53, // 提高50%
         toolReq: 25
     }
 ];
@@ -445,9 +455,27 @@ function generateMineralGrid() {
         const mineralEl = document.createElement('div');
         mineralEl.className = 'mineral';
         mineralEl.dataset.name = mineral.name;
-        // 采矿锄加速效果：每级减少6%的采矿时间，最高减少40%
-        const pickaxeBonus = Math.min(0.4, gameData.tools.pickaxe.level * 0.06);
+        // 采矿锄加速效果：每5级一个阶段，40级以后每级加速效果减少
+        // 确保采矿锄等级存在且有效
+        const pickaxeLevel = gameData.tools.pickaxe ? gameData.tools.pickaxe.level : 0;
+        let pickaxeBonus = 0;
+        
+        if (pickaxeLevel < 40) {
+            // 40级以前：每5级一个阶段，每个阶段增加9%的加速效果
+            const stage = Math.min(8, Math.floor(pickaxeLevel / 5) + 1);
+            pickaxeBonus = stage * 0.09;
+        } else {
+            // 40级以后：每级增加0.5%的加速效果
+            const baseBonus = 0.72; // 40级时的基础加速效果（8个阶段 × 9%）
+            const additionalBonus = (pickaxeLevel - 39) * 0.005;
+            pickaxeBonus = baseBonus + additionalBonus;
+        }
+        
+        // 最高加速效果限制在90%
+        pickaxeBonus = Math.min(0.9, pickaxeBonus);
         const actualTime = mineral.baseTime * (1 - pickaxeBonus);
+        // 调试信息：显示矿锄等级和计算出的实际时间
+        console.log(`矿锄等级: ${pickaxeLevel}, 加速效果: ${(pickaxeBonus * 100).toFixed(2)}%, 基础时间: ${mineral.baseTime}s, 实际时间: ${actualTime.toFixed(2)}s`);
         const canMine = gameData.player.level >= mineral.minLevel && 
                        (!mineral.toolReq || gameData.tools.pickaxe.level >= mineral.toolReq);
         const isCurrentlyMining = continuousMining && currentContinuousMineral === mineral.name;
@@ -842,8 +870,27 @@ function mineMineral(mineralName) {
     progressFill.style.width = '0%';
     mineBtn.disabled = true;
     continuousBtn.disabled = true;
-    const pickaxeBonus = Math.min(0.4, gameData.tools.pickaxe.level * 0.06);
+    // 采矿锄加速效果：每5级一个阶段，40级以后每级加速效果减少
+    // 确保采矿锄等级存在且有效
+    const pickaxeLevel = gameData.tools.pickaxe ? gameData.tools.pickaxe.level : 0;
+    let pickaxeBonus = 0;
+    
+    if (pickaxeLevel < 40) {
+        // 40级以前：每5级一个阶段，每个阶段增加9%的加速效果
+        const stage = Math.min(8, Math.floor(pickaxeLevel / 5) + 1);
+        pickaxeBonus = stage * 0.09;
+    } else {
+        // 40级以后：每级增加0.5%的加速效果
+        const baseBonus = 0.72; // 40级时的基础加速效果（8个阶段 × 9%）
+        const additionalBonus = (pickaxeLevel - 39) * 0.005;
+        pickaxeBonus = baseBonus + additionalBonus;
+    }
+    
+    // 最高加速效果限制在90%
+    pickaxeBonus = Math.min(0.9, pickaxeBonus);
     const actualTime = mineral.baseTime * (1 - pickaxeBonus);
+    // 调试信息：显示矿锄等级和计算出的实际时间
+    console.log(`矿锄等级: ${pickaxeLevel}, 加速效果: ${(pickaxeBonus * 100).toFixed(2)}%, 基础时间: ${mineral.baseTime}s, 实际时间: ${actualTime.toFixed(2)}s`);
     let elapsed = 0;
     const interval = 100;
     countdown.textContent = `${actualTime.toFixed(2)}s`;
@@ -906,8 +953,27 @@ function handleBackgroundTime(elapsedTime) {
         const mineral = minerals.find(m => m.name === currentContinuousMineral);
         if (mineral) {
             // 计算加速后的采矿时间
-            const pickaxeBonus = Math.min(0.4, gameData.tools.pickaxe.level * 0.06);
+            // 采矿锄加速效果：每5级一个阶段，40级以后每级加速效果减少
+            // 确保采矿锄等级存在且有效
+            const pickaxeLevel = gameData.tools.pickaxe ? gameData.tools.pickaxe.level : 0;
+            let pickaxeBonus = 0;
+            
+            if (pickaxeLevel < 40) {
+                // 40级以前：每5级一个阶段，每个阶段增加9%的加速效果
+                const stage = Math.min(8, Math.floor(pickaxeLevel / 5) + 1);
+                pickaxeBonus = stage * 0.09;
+            } else {
+                // 40级以后：每级增加0.5%的加速效果
+                const baseBonus = 0.72; // 40级时的基础加速效果（8个阶段 × 9%）
+                const additionalBonus = (pickaxeLevel - 39) * 0.005;
+                pickaxeBonus = baseBonus + additionalBonus;
+            }
+            
+            // 最高加速效果限制在90%
+            pickaxeBonus = Math.min(0.9, pickaxeBonus);
             const actualTime = mineral.baseTime * (1 - pickaxeBonus);
+            // 调试信息：显示矿锄等级和计算出的实际时间
+            console.log(`矿锄等级: ${pickaxeLevel}, 加速效果: ${(pickaxeBonus * 100).toFixed(2)}%, 基础时间: ${mineral.baseTime}s, 实际时间: ${actualTime.toFixed(2)}s`);
             
             // 计算在后台完成的采矿次数
             const completedMines = Math.floor(elapsedTime / actualTime);
@@ -978,8 +1044,27 @@ function continuousMine(mineralName) {
     mineBtn.disabled = true;
     continuousBtn.textContent = '停止连续开采';
     progressContainer.style.display = 'block';
-    const pickaxeBonus = Math.min(0.4, gameData.tools.pickaxe.level * 0.06);
+    // 采矿锄加速效果：每5级一个阶段，40级以后每级加速效果减少
+    // 确保采矿锄等级存在且有效
+    const pickaxeLevel = gameData.tools.pickaxe ? gameData.tools.pickaxe.level : 0;
+    let pickaxeBonus = 0;
+    
+    if (pickaxeLevel < 40) {
+        // 40级以前：每5级一个阶段，每个阶段增加9%的加速效果
+        const stage = Math.min(8, Math.floor(pickaxeLevel / 5) + 1);
+        pickaxeBonus = stage * 0.09;
+    } else {
+        // 40级以后：每级增加0.5%的加速效果
+        const baseBonus = 0.72; // 40级时的基础加速效果（8个阶段 × 9%）
+        const additionalBonus = (pickaxeLevel - 39) * 0.005;
+        pickaxeBonus = baseBonus + additionalBonus;
+    }
+    
+    // 最高加速效果限制在90%
+    pickaxeBonus = Math.min(0.9, pickaxeBonus);
     const actualTime = mineral.baseTime * (1 - pickaxeBonus);
+    // 调试信息：显示矿锄等级和计算出的实际时间
+    console.log(`矿锄等级: ${pickaxeLevel}, 加速效果: ${(pickaxeBonus * 100).toFixed(2)}%, 基础时间: ${mineral.baseTime}s, 实际时间: ${actualTime.toFixed(2)}s`);
     const interval = 100;
     progressFill.style.width = '0%';
     countdown.textContent = `${actualTime.toFixed(2)}s`;
@@ -1198,18 +1283,17 @@ function completeMining(mineral) {
                         baseAmount = 1 + cartBonus;
                         addMessage('燃料舱燃料不足，已自动从背包中添加燃料！');
                     } else {
-                        // 背包中也没有燃料，尝试切换到煤矿
+                        // 燃料不足，尝试切换到煤矿
                         if (hasEnoughItem('煤矿', 1)) {
-                            // 切换到煤矿作为燃料类型
+                            // 切换到煤矿作为燃料
                             gameData.tools.cart.fuelType = 'coal';
-                            // 消耗煤矿
                             consumeItem('煤矿', 1);
                             // 矿车每5级提升1个采矿数量
                             const cartBonus = Math.floor(gameData.tools.cart.level / 5);
                             baseAmount = 1 + cartBonus;
                             addMessage('燃料不足，已自动切换到煤矿作为燃料！');
                         } else {
-                            // 背包中也没有煤矿，自动停用矿车
+                            // 煤矿也不足，自动停用矿车
                             gameData.tools.cart.active = false;
                             addMessage('燃料和煤矿都不足，矿车已自动停止使用！请添加燃料或煤矿。');
                         }
@@ -1297,19 +1381,19 @@ function completeMining(mineral) {
                     gameData.tools.headlight.lastBatteryUpdate = Date.now();
                     addMessage('电池能量不足，已自动从背包中添加电池！');
                 } else {
-                    // 背包中也没有电池，尝试切换到金币
+                    // 电池不足，尝试切换到金币
                     if (gameData.player.gold >= 10) {
-                        // 切换到金币作为燃料类型
+                        // 切换到金币作为燃料
                         gameData.tools.headlight.fuelType = 'gold';
-                        // 消耗10金币
+                        // 每30秒消耗10金币
                         gameData.player.gold -= 10;
-                        // 更新金币消耗时间
                         gameData.tools.headlight.lastGoldConsume = Date.now();
+                        headlightGoldConsumed = true;
                         addMessage('电池不足，已自动切换到金币作为燃料！');
                     } else {
-                        // 背包中也没有电池，金币也不足，自动停用头灯
+                        // 金币也不足，自动停用头灯
                         gameData.tools.headlight.active = false;
-                        addMessage('电池能量不足，背包中也没有电池，金币也不足，头灯已自动停止使用！请添加电池或金币。');
+                        addMessage('电池和金币都不足，头灯已自动停止使用！请添加电池或金币。');
                     }
                 }
             }
@@ -1398,6 +1482,16 @@ function completeMining(mineral) {
         }
     }
     
+    // 挖掘铜矿时随机获得存钱罐（概率待定，后续可调整）
+    if (mineral.name === '铜矿') {
+        // 检查是否有活跃的存钱罐效果
+        const hasActivePiggyBankEffect = gameData.activeEffects && Object.values(gameData.activeEffects).some(effect => effect.active);
+        if (!hasActivePiggyBankEffect && Math.random() < 0.1) { // 10%概率获得存钱罐，且没有活跃的存钱罐效果
+            // 显示存钱罐发现弹窗
+            showPiggyBankPopup();
+        }
+    }
+    
     // 计算总经验值
     let totalExp = mineral.exp; // 基础矿物经验
     
@@ -1473,23 +1567,23 @@ function addToBackpack(itemName) {
     // 如果没有添加到现有堆叠，尝试创建新堆叠
     if (!added) {
         const itemCount = Object.keys(gameData.backpack.items).length;
-        if (itemCount >= gameData.backpack.capacity) {
+        if (itemCount < gameData.backpack.capacity) {
+            // 背包还有空槽位，创建新堆叠
+            let suffix = 1;
+            let newItemName = itemName;
+            while (gameData.backpack.items[newItemName]) {
+                suffix++;
+                newItemName = `${itemName}_${suffix}`;
+            }
+            
+            // 添加新物品
+            gameData.backpack.items[newItemName] = 1;
+            added = true;
+        } else {
             // 背包满了，放入临时背包
             addToTempBackpack(itemName);
             return;
         }
-        
-        // 找到可用的新物品名称
-        let suffix = 1;
-        let newItemName = itemName;
-        while (gameData.backpack.items[newItemName]) {
-            suffix++;
-            newItemName = `${itemName}_${suffix}`;
-        }
-        
-        // 添加新物品
-        gameData.backpack.items[newItemName] = 1;
-        added = true;
     }
     
     // 记录详细获得信息
@@ -1526,14 +1620,16 @@ function getToolUpgradeRequirements(toolType, level) {
             15: { materials: { '铜矿': 90, '铜铁合金': 17 }, gold: 3078 }
         };
         
-        // 15级以上的需求，每级增加2个铜铁合金，金币为前一级的150%
+        // 15级以上的需求，每级增加2个铜铁合金，金币为前一级的120%，最高不超过50万
         if (level > 15) {
             const baseLevel = 15;
             const baseRequirements = requirements[baseLevel];
             const additionalLevel = level - baseLevel;
             const materials = { ...baseRequirements.materials };
             materials['铜铁合金'] = baseRequirements.materials['铜铁合金'] + (additionalLevel * 2);
-            const gold = Math.floor(baseRequirements.gold * Math.pow(1.5, additionalLevel));
+            const maxGold = 500000; // 50万金币上限
+            const calculatedGold = Math.floor(baseRequirements.gold * Math.pow(1.2, additionalLevel));
+            const gold = Math.min(calculatedGold, maxGold);
             return { materials, gold };
         }
         
@@ -1555,14 +1651,16 @@ function getToolUpgradeRequirements(toolType, level) {
             10: { materials: { '钴矿': 100, '铜钴合金': 4 }, gold: 777 }
         };
         
-        // 10级以上的需求，每级增加2个铜钴合金，金币为前一级的150%
+        // 10级以上的需求，每级增加2个铜钴合金，金币为前一级的120%，最高不超过50万
         if (level > 10) {
             const baseLevel = 10;
             const baseRequirements = requirements[baseLevel];
             const additionalLevel = level - baseLevel;
             const materials = { ...baseRequirements.materials };
             materials['铜钴合金'] = baseRequirements.materials['铜钴合金'] + (additionalLevel * 2);
-            const gold = Math.floor(baseRequirements.gold * Math.pow(1.5, additionalLevel));
+            const maxGold = 500000; // 50万金币上限
+            const calculatedGold = Math.floor(baseRequirements.gold * Math.pow(1.2, additionalLevel));
+            const gold = Math.min(calculatedGold, maxGold);
             return { materials, gold };
         }
         
@@ -1584,14 +1682,16 @@ function getToolUpgradeRequirements(toolType, level) {
             10: { materials: { '银矿': 80, '铜银合金': 2 }, gold: 1943 }
         };
         
-        // 10级以上的需求，每级增加2个铜银合金，金币为前一级的150%
+        // 10级以上的需求，每级增加2个铜银合金，金币为前一级的120%，最高不超过50万
         if (level > 10) {
             const baseLevel = 10;
             const baseRequirements = requirements[baseLevel];
             const additionalLevel = level - baseLevel;
             const materials = { ...baseRequirements.materials };
             materials['铜银合金'] = baseRequirements.materials['铜银合金'] + (additionalLevel * 2);
-            const gold = Math.floor(baseRequirements.gold * Math.pow(1.5, additionalLevel));
+            const maxGold = 500000; // 50万金币上限
+            const calculatedGold = Math.floor(baseRequirements.gold * Math.pow(1.2, additionalLevel));
+            const gold = Math.min(calculatedGold, maxGold);
             return { materials, gold };
         }
         
@@ -1807,13 +1907,13 @@ function getToolDescription() {
         pickaxe: {
             name: '采矿锄',
             description: '加快采矿速度',
-            current: `当前效果: 采矿速度提升 ${Math.min(50, gameData.tools.pickaxe.level * 1)}%`,
-            next: gameData.tools.pickaxe.level < 50 ? `下一级: 采矿速度提升 ${Math.min(50, (gameData.tools.pickaxe.level + 1) * 1)}%` : '已达到最高等级',
+            current: `当前效果: 采矿速度提升 ${calculatePickaxeBonus(gameData.tools.pickaxe.level)}%`,
+            next: gameData.tools.pickaxe.level < 50 ? `下一级: 采矿速度提升 ${calculatePickaxeBonus(gameData.tools.pickaxe.level + 1)}%` : '已达到最高等级',
             upgrade: gameData.tools.pickaxe.level < 50 ? `升级需求: ${getNextLevelRequirements('pickaxe')}` : ''
         },
         cart: {
             name: '矿车',
-            description: '增加采矿数量，消耗燃料',
+            description: gameData.tools.cart.fuelType === 'fuel' ? '增加采矿数量，消耗燃料' : '增加采矿数量，消耗煤矿',
             current: gameData.tools.cart.crafted ? `当前效果: 采矿数量+${Math.floor(gameData.tools.cart.level / 5)}个，使用${gameData.tools.cart.fuelType === 'fuel' ? '燃料作为能源供应数量额外增加5' : '煤炭作为能源供应无特殊加成'}` : '未制作',
             next: gameData.tools.cart.crafted ? (gameData.tools.cart.level < 50 ? `下一级: 采矿数量+${Math.floor((gameData.tools.cart.level + 1) / 5)}个` : '已达到最高等级') : '制作后获得效果',
             upgrade: gameData.tools.cart.crafted && gameData.tools.cart.level < 50 ? `升级需求: ${getNextLevelRequirements('cart')}` : '',
@@ -1839,8 +1939,8 @@ function getToolDescription() {
         },
         headlight: {
             name: '头灯',
-            description: '增加高一级矿物发现几率，消耗燃料',
-            current: gameData.tools.headlight.crafted ? (gameData.tools.headlight.fuelType === 'battery' ? `当前效果: 高一级矿物几率+${10 + gameData.tools.headlight.level * 1}%，数量为：5，使用电池作为燃料` : `当前效果: 高一级矿物几率+${10 + gameData.tools.headlight.level * 1}%，使用金币作为燃料`) : '未制作',
+            description: gameData.tools.headlight.fuelType === 'battery' ? '增加高一级矿物发现几率，消耗电力' : '增加高一级矿物发现几率，消耗金币',
+            current: gameData.tools.headlight.crafted ? (gameData.tools.headlight.fuelType === 'battery' ? `当前效果: 高一级矿物几率+${10 + gameData.tools.headlight.level * 1}%，使用电池作为能源供应产出数量额外增加5` : `当前效果: 高一级矿物几率+${10 + gameData.tools.headlight.level * 1}%，消耗金币`) : '未制作',
             next: gameData.tools.headlight.crafted ? (gameData.tools.headlight.level < 50 ? `下一级: 高一级矿物几率+${10 + (gameData.tools.headlight.level + 1) * 1}%` : '已达到最高等级') : '制作后获得效果',
             upgrade: gameData.tools.headlight.crafted && gameData.tools.headlight.level < 50 ? `升级需求: ${getNextLevelRequirements('headlight')}` : '',
             timeLeft: gameData.tools.headlight.crafted && gameData.tools.headlight.active ? (gameData.tools.headlight.fuelType === 'battery' ? `电池能量: ${Math.round(gameData.tools.headlight.batteryEnergy || 0)}秒` : `剩余时间: ${(headlightTime.current / 1000).toFixed(0)}秒，总可用: ${headlightTime.total}秒`) : '',
@@ -2808,6 +2908,96 @@ function updateSellPanel() {
     const sellItemSelect = document.getElementById('sell-item');
     sellItemSelect.innerHTML = '';
     
+    // 收集每种物品的总量
+    const itemTotals = {};
+    
+    // 从主背包中收集
+    Object.entries(gameData.backpack.items).forEach(([itemName, count]) => {
+        const baseName = itemName.split('_')[0];
+        if (!isConsumable(baseName)) {
+            if (!itemTotals[baseName]) {
+                itemTotals[baseName] = 0;
+            }
+            itemTotals[baseName] += count;
+        }
+    });
+    
+    // 从临时背包中收集
+    Object.entries(gameData.tempBackpack.items).forEach(([itemName, count]) => {
+        const baseName = itemName.split('_')[0];
+        if (!isConsumable(baseName)) {
+            if (!itemTotals[baseName]) {
+                itemTotals[baseName] = 0;
+            }
+            itemTotals[baseName] += count;
+        }
+    });
+    
+    // 添加每种物品的总量选项
+    Object.entries(itemTotals).forEach(([itemType, totalCount]) => {
+        const option = document.createElement('option');
+        option.value = `all_${itemType}`;
+        option.textContent = `${itemType} (总量: ${totalCount})`;
+        sellItemSelect.appendChild(option);
+    });
+    
+    // 添加事件监听器，当选择物品时自动填充出售数量为物品总数
+    const sellAmountInput = document.getElementById('sell-amount');
+    sellItemSelect.addEventListener('change', function() {
+        const selectedValue = this.value;
+        if (!selectedValue) {
+            return;
+        }
+        
+        // 解析选择的物品值
+        const [backpackType, ...itemNameParts] = selectedValue.split('_');
+        const itemName = itemNameParts.join('_');
+        
+        if (backpackType === 'all') {
+            // 计算该类型物品的总数量
+            let totalItemCount = 0;
+            
+            // 检查主背包中的物品
+            Object.entries(gameData.backpack.items).forEach(([backpackItemName, count]) => {
+                if (backpackItemName.split('_')[0] === itemName) {
+                    totalItemCount += count;
+                }
+            });
+            
+            // 检查临时背包中的物品
+            Object.entries(gameData.tempBackpack.items).forEach(([tempItemName, count]) => {
+                if (tempItemName.split('_')[0] === itemName) {
+                    totalItemCount += count;
+                }
+            });
+            
+            // 设置出售数量为物品总数
+            if (sellAmountInput) {
+                sellAmountInput.value = totalItemCount;
+            }
+        } else if (backpackType === 'backpack' || backpackType === 'temp') {
+            // 对于单个槽位的物品，设置出售数量为槽位中的物品数量
+            let itemCount = 0;
+            if (backpackType === 'backpack') {
+                itemCount = gameData.backpack.items[itemName] || 0;
+            } else if (backpackType === 'temp') {
+                itemCount = gameData.tempBackpack.items[itemName] || 0;
+            }
+            
+            // 设置出售数量为槽位中的物品数量
+            if (sellAmountInput) {
+                sellAmountInput.value = itemCount;
+            }
+        }
+    });
+    
+    // 触发一次change事件，以初始化出售数量
+    if (sellItemSelect.options.length > 0) {
+        sellItemSelect.dispatchEvent(new Event('change'));
+    }
+    
+    return;
+    
     // 添加主背包中的物品
     const backpackItems = Object.keys(gameData.backpack.items);
     backpackItems.forEach(item => {
@@ -2882,39 +3072,86 @@ function sellItem() {
                 price = 500;
         }
     } else {
-        // 检查是否是矿物
-        const mineral = minerals.find(m => m.name === baseItemName);
-        if (mineral) {
-            price = mineral.price;
-        } else {
-            // 检查是否是合金
-            if (alloyRecipes[baseItemName]) {
-                // 为合金设置价格：两个材料的价格总和再加上50%，确保玩家制作合金后出售能够获得利润
-                switch (baseItemName) {
-                    case '铜铁合金':
-                        // 铜矿(11) + 铁矿(7) = 18 * 1.5 = 27 → 修正：(11+7)*2=36 * 1.5=54
-                        price = 54;
-                        break;
-                    case '铜钴合金':
-                        // 铜矿(11) + 钴矿(15) = 26 * 1.5 = 39 → 修正：(11+15)*2=52 * 1.5=78
-                        price = 78;
-                        break;
-                    case '铜镍合金':
-                        // 铜矿(11) + 镍矿(18) = 29 * 1.5 = 43.5 → 44 → 修正：(11+18)*2=58 * 1.5=87
-                        price = 87;
-                        break;
-                    case '铜银合金':
-                        // 铜矿(11) + 银矿(21) = 32 * 1.5 = 48 → 修正：(11+21)*2=64 * 1.5=96
-                        price = 96;
-                        break;
-                    default:
-                        price = 20;
+            // 使用统一的价格计算函数
+            price = getItemPrice(baseItemName);
+        }
+    
+    // 处理出售所有相同类型物品的情况
+    if (backpackType === 'all') {
+        // 计算该类型物品的总数量
+        let totalItemCount = 0;
+        
+        // 检查主背包中的物品
+        Object.entries(gameData.backpack.items).forEach(([backpackItemName, count]) => {
+            if (backpackItemName.split('_')[0] === baseItemName) {
+                totalItemCount += count;
+            }
+        });
+        
+        // 检查临时背包中的物品
+        Object.entries(gameData.tempBackpack.items).forEach(([tempItemName, count]) => {
+            if (tempItemName.split('_')[0] === baseItemName) {
+                totalItemCount += count;
+            }
+        });
+        
+        // 检查数量是否足够
+        if (totalItemCount < amount) {
+            alert('物品数量不足！');
+            return;
+        }
+        
+        // 计算总价，检查谨慎矿工效果
+        let totalPrice = price * amount;
+        // 检查是否有谨慎地矿工效果
+        if (gameData.activeEffects && gameData.activeEffects.carefulMiner && gameData.activeEffects.carefulMiner.active) {
+            totalPrice *= 2;
+        }
+        gameData.player.gold += totalPrice;
+        addGainedGold(totalPrice);
+        
+        // 从背包中消耗物品
+        let remaining = amount;
+        
+        // 先从主背包中消耗
+        const backpackItems = Object.entries(gameData.backpack.items);
+        const backpackItemsToUpdate = [...backpackItems];
+        for (const [backpackItemName, count] of backpackItemsToUpdate) {
+            if (backpackItemName.split('_')[0] === baseItemName && remaining > 0) {
+                const consumeCount = Math.min(count, remaining);
+                gameData.backpack.items[backpackItemName] -= consumeCount;
+                if (gameData.backpack.items[backpackItemName] <= 0) {
+                    delete gameData.backpack.items[backpackItemName];
                 }
-            } else {
-                // 其他物品默认价格
-                price = 1;
+                remaining -= consumeCount;
             }
         }
+        
+        // 再从临时背包中消耗
+        if (remaining > 0) {
+            const tempItems = Object.entries(gameData.tempBackpack.items);
+            const tempItemsToUpdate = [...tempItems];
+            for (const [tempItemName, count] of tempItemsToUpdate) {
+                if (tempItemName.split('_')[0] === baseItemName && remaining > 0) {
+                    const consumeCount = Math.min(count, remaining);
+                    gameData.tempBackpack.items[tempItemName] -= consumeCount;
+                    if (gameData.tempBackpack.items[tempItemName] <= 0) {
+                        delete gameData.tempBackpack.items[tempItemName];
+                    }
+                    remaining -= consumeCount;
+                }
+            }
+            updateTempBackpackDisplay();
+        }
+        
+        const displayName = baseItemName;
+        const sellMessage = `出售成功：${displayName}*${amount}，获得金币*${totalPrice}！`;
+        addMessage(sellMessage);
+        
+        updateUI();
+        updateBackpackDisplay();
+        updateSellPanel();
+        return;
     }
     
     // 检查物品数量是否足够
@@ -2930,8 +3167,12 @@ function sellItem() {
         return;
     }
     
-    // 计算总价并增加金币
-    const totalPrice = price * amount;
+    // 计算总价并增加金币，检查谨慎矿工效果
+    let totalPrice = price * amount;
+    // 检查是否有谨慎地矿工效果
+    if (gameData.activeEffects && gameData.activeEffects.carefulMiner && gameData.activeEffects.carefulMiner.active) {
+        totalPrice *= 2;
+    }
     gameData.player.gold += totalPrice;
     addGainedGold(totalPrice);
     
@@ -4020,6 +4261,25 @@ function ensureGameDataIntegrity() {
                 nextExp: 50
             }
         };
+    } else {
+        // 确保采矿锄属性完整
+        if (!gameData.tools.pickaxe) {
+            gameData.tools.pickaxe = {
+                level: 0,
+                exp: 0,
+                nextExp: 50
+            };
+        } else {
+            if (gameData.tools.pickaxe.level === undefined) {
+                gameData.tools.pickaxe.level = 0;
+            }
+            if (gameData.tools.pickaxe.exp === undefined) {
+                gameData.tools.pickaxe.exp = 0;
+            }
+            if (gameData.tools.pickaxe.nextExp === undefined) {
+                gameData.tools.pickaxe.nextExp = 50;
+            }
+        }
     }
     // 确保金手套属性存在
     if (!gameData.goldenGlove) {
@@ -4386,20 +4646,25 @@ function updateFilterPanel() {
     const filterItemSelect = document.getElementById('filter-item');
     filterItemSelect.innerHTML = '';
     
-    // 获取背包中的所有物品
-    const itemsInBackpack = [];
-    for (const [itemName, count] of Object.entries(gameData.backpack.items)) {
-        const baseName = itemName.split('_')[0];
-        if (!itemsInBackpack.includes(baseName)) {
-            itemsInBackpack.push(baseName);
-        }
-    }
+    // 定义所有可获得的物品列表
+    const allAvailableItems = [];
+    
+    // 添加所有矿物
+    minerals.forEach(mineral => {
+        allAvailableItems.push(mineral.name);
+    });
+    
+    // 添加其他可获得的物品
+    const otherItems = ['棉布', '织布', '加工台图纸', '电池图纸', '燃料配方', '电池', '燃料', '木材', '金手套'];
+    otherItems.forEach(item => {
+        allAvailableItems.push(item);
+    });
     
     // 获取已设置过滤的物品
     const filteredItems = Object.keys(gameData.filterSettings);
     
     // 合并所有物品，去重
-    const allItems = [...new Set([...itemsInBackpack, ...filteredItems])];
+    const allItems = [...new Set([...allAvailableItems, ...filteredItems])];
     
     // 添加选项
     allItems.forEach(itemName => {
@@ -4527,8 +4792,12 @@ function sellItemAutomatically(itemName, amount) {
             // 计算可以从这个堆叠中出售的数量
             const sellFromStack = Math.min(count, amount - totalSold);
             if (sellFromStack > 0) {
-                // 计算出售价格
-                const itemPrice = getItemPrice(itemName);
+                // 计算出售价格，检查谨慎矿工效果
+                let itemPrice = getItemPrice(itemName);
+                // 检查是否有谨慎地矿工效果
+                if (gameData.activeEffects && gameData.activeEffects.carefulMiner && gameData.activeEffects.carefulMiner.active) {
+                    itemPrice *= 2;
+                }
                 const stackEarned = sellFromStack * itemPrice;
                 totalEarned += stackEarned;
                 
@@ -4580,6 +4849,25 @@ function isConsumable(itemName) {
 
 // 获取物品价格
 function getItemPrice(itemName) {
+    // 检查是否是配方物品
+    if (itemName.includes('配方')) {
+        // 提取合金名称
+        const alloyName = itemName.replace('配方', '');
+        // 根据合金类型设置配方价格
+        switch (alloyName) {
+            case '铜铁合金':
+                return 1000;
+            case '铜钴合金':
+                return 5000;
+            case '铜镍合金':
+                return 8000;
+            case '铜银合金':
+                return 10000;
+            default:
+                return 500;
+        }
+    }
+    
     // 检查是否是矿物
     const mineral = minerals.find(m => m.name === itemName);
     if (mineral) {
@@ -4592,6 +4880,7 @@ function getItemPrice(itemName) {
         case '织布': return 2;
         case '粗麻布': return 3;
         case '尼龙布': return 5;
+        case '硫磺': return 10;
         case '铜铁合金': return 54;
         case '铜钴合金': return 78;
         case '铜镍合金': return 87;
@@ -4734,7 +5023,7 @@ function updateShopUI() {
                     <div class="auto-purchase-section" style="margin-top: 10px;">
                         <h4>自动采购功能</h4>
                         <div style="margin-top: 5px;">
-                            <label>选择物品 (最多2种):</label><br>
+                            <label for="auto-item-1">选择物品 (最多2种):</label><br>
                             <input type="checkbox" id="auto-item-1" value="加工台图纸"> 加工台图纸<br>
                             <input type="checkbox" id="auto-item-2" value="电池图纸"> 电池图纸<br>
                             <input type="checkbox" id="auto-item-3" value="燃料配方"> 燃料配方<br>
@@ -4869,8 +5158,8 @@ function useFreeRefresh() {
     // 减少免费刷新次数
     gameData.shop.freeRefreshes--;
     
-    // 刷新商店物品
-    refreshShopItems();
+    // 刷新商店物品（传递false表示免费刷新）
+    refreshShopItems(false, true);
     
     // 显示刷新成功消息
     addMessage('使用了一次免费刷新！');
@@ -4979,6 +5268,13 @@ function renderShopItems() {
                 <div class="shop-item-price" style="color: blue;">价格: ${Math.floor(item.price)}金币</div>
                 <button class="buy-item" data-item="${item.name}" data-price="${Math.floor(item.price)}">购买</button>
             `;
+        } else if (item.name === '旅行背包') {
+            // 旅行背包显示为亮金色
+            itemHTML = `
+                <div class="shop-item-name" style="color: gold; text-shadow: 0 0 10px gold;">${item.name}</div>
+                <div class="shop-item-price" style="color: gold;">价格: ${Math.floor(item.price)}金币</div>
+                <button class="buy-item" data-item="${item.name}" data-price="${Math.floor(item.price)}">购买</button>
+            `;
         } else {
             itemHTML = `
                 <div class="shop-item-name">${item.name}</div>
@@ -5029,6 +5325,15 @@ function renderShopItemsInline() {
                 <div class="shop-item" style="margin-bottom: 10px; padding: 8px; background-color: #fff; border-radius: 3px; border: 1px solid #ddd;">
                     <div class="shop-item-name" style="color: blue;">${item.name} <span style="color: blue;">${item.priceIncreaseText}</span></div>
                     <div class="shop-item-price" style="color: blue;">价格: ${Math.floor(item.price)}金币</div>
+                    <button class="buy-item" data-item="${item.name}" data-price="${Math.floor(item.price)}" style="margin-top: 5px; padding: 3px 6px;">购买</button>
+                </div>
+            `;
+        } else if (item.name === '旅行背包') {
+            // 旅行背包显示为亮金色
+            html += `
+                <div class="shop-item" style="margin-bottom: 10px; padding: 8px; background-color: #fff; border-radius: 3px; border: 1px solid #ddd;">
+                    <div class="shop-item-name" style="color: gold; text-shadow: 0 0 10px gold;">${item.name}</div>
+                    <div class="shop-item-price" style="color: gold;">价格: ${Math.floor(item.price)}金币</div>
                     <button class="buy-item" data-item="${item.name}" data-price="${Math.floor(item.price)}" style="margin-top: 5px; padding: 3px 6px;">购买</button>
                 </div>
             `;
@@ -5087,6 +5392,11 @@ function buyShopItem(itemName, price) {
             addToBackpack('金手套');
         }
         
+        // 旅行背包购买后放入背包
+        if (itemName === '旅行背包') {
+            addToBackpack('旅行背包');
+        }
+        
         // 更新UI
         updateUI();
         updateBackpackDisplay();
@@ -5103,7 +5413,7 @@ function buyShopItem(itemName, price) {
     }
 }
 
-function refreshShopItems() {
+function refreshShopItems(isManualRefresh = false, isFreeRefresh = false) {
     if (!gameData.shop.unlocked) return;
     
     const items = [];
@@ -5121,6 +5431,12 @@ function refreshShopItems() {
         { name: '金手套', price: 10000, probability: 0.2, isSpecial: true, effect: 'expBoost' }
     ];
     
+    // 手动刷新（使用金币）时，添加旅行背包到物品池
+    // 确保不会连续出现2次旅行背包
+    if (isManualRefresh && !gameData.shop.lastHadTravelBackpack) {
+        itemPool.push({ name: '旅行背包', price: 10000, probability: 0.01, isSpecial: true, isHidden: true });
+    }
+    
     // 添加已解锁的矿物（只保留石矿和煤矿）
     minerals.forEach(mineral => {
         if (gameData.player.level >= mineral.minLevel && (mineral.name === '石矿' || mineral.name === '煤矿')) {
@@ -5132,8 +5448,8 @@ function refreshShopItems() {
         }
     });
     
-    // 添加燃料和电池的优惠产品（10%几率）
-    if (Math.random() < 0.1) {
+    // 添加燃料和电池的优惠产品（10%几率），免费刷新时不添加
+    if (!isFreeRefresh && Math.random() < 0.1) {
         // 随机选择添加一种或两种优惠产品，但确保每种最多只添加一次
         const addFuelDiscount = Math.random() < 0.6; // 60%几率添加燃料优惠
         const addBatteryDiscount = Math.random() < 0.6; // 60%几率添加电池优惠
@@ -5204,6 +5520,13 @@ function refreshShopItems() {
                 }
                 return !gameData.shop.unlockedBlueprints[item.name];
             }
+            // 确保在同一次刷新时不会同时出现2个以上的旅行背包
+            if (item.name === '旅行背包') {
+                const hasTravelBackpack = items.some(existingItem => existingItem.name === '旅行背包');
+                if (hasTravelBackpack) {
+                    return false;
+                }
+            }
             return true;
         });
         
@@ -5247,22 +5570,25 @@ function refreshShopItems() {
                 // 为非优惠产品添加随机打折或涨价
                 let finalItem = { ...selectedItem };
                 
-                // 应用3级商店的价格调整
-                if (gameData.shop.level >= 2 && gameData.shop.neededItem && finalItem.name === gameData.shop.neededItem) {
-                    // 价格为300%
-                    finalItem.price = finalItem.price * 3;
-                    finalItem.isPriceIncrease = true;
-                    finalItem.priceIncreaseText = '需求价格！';
-                } else if (!finalItem.isDiscount) {
-                    const randomEvent = Math.random();
-                    if (randomEvent < 0.1) { // 10%几率打折
-                        finalItem.price = finalItem.price * 0.5;
-                        finalItem.isDiscount = true;
-                        finalItem.discountText = '优惠50%！';
-                    } else if (randomEvent < 0.2) { // 10%几率涨价
-                        finalItem.price = finalItem.price * 1.5;
+                // 旅行背包不参与打折优惠
+                if (finalItem.name !== '旅行背包') {
+                    // 应用3级商店的价格调整
+                    if (gameData.shop.level >= 2 && gameData.shop.neededItem && finalItem.name === gameData.shop.neededItem) {
+                        // 价格为300%
+                        finalItem.price = finalItem.price * 3;
                         finalItem.isPriceIncrease = true;
-                        finalItem.priceIncreaseText = '涨价50%！';
+                        finalItem.priceIncreaseText = '需求价格！';
+                    } else if (!finalItem.isDiscount && !isFreeRefresh) {
+                        const randomEvent = Math.random();
+                        if (randomEvent < 0.1) { // 10%几率打折
+                            finalItem.price = finalItem.price * 0.5;
+                            finalItem.isDiscount = true;
+                            finalItem.discountText = '优惠50%！';
+                        } else if (randomEvent < 0.2) { // 10%几率涨价
+                            finalItem.price = finalItem.price * 1.5;
+                            finalItem.isPriceIncrease = true;
+                            finalItem.priceIncreaseText = '涨价50%！';
+                        }
                     }
                 }
                 
@@ -5335,6 +5661,35 @@ function refreshShopItems() {
     
     gameData.shop.items = items;
     gameData.shop.lastRefresh = Date.now();
+    
+    // 更新旅行背包出现状态，用于确保不会连续出现2次
+    gameData.shop.lastHadTravelBackpack = items.some(item => item.name === '旅行背包');
+    
+    // 检查是否有旅行背包，如果有则显示特殊消息
+    if (items.some(item => item.name === '旅行背包')) {
+        // 创建网页提示
+        const notification = document.createElement('div');
+        notification.style.position = 'fixed';
+        notification.style.top = '50%';
+        notification.style.left = '50%';
+        notification.style.transform = 'translate(-50%, -50%)';
+        notification.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
+        notification.style.color = 'gold';
+        notification.style.padding = '30px';
+        notification.style.borderRadius = '10px';
+        notification.style.fontSize = '24px';
+        notification.style.fontWeight = 'bold';
+        notification.style.zIndex = '9999';
+        notification.style.textAlign = 'center';
+        notification.style.boxShadow = '0 0 30px gold';
+        notification.textContent = '！！！请注意，发现隐藏道具！！！';
+        document.body.appendChild(notification);
+        
+        // 3秒后移除提示
+        setTimeout(() => {
+            notification.remove();
+        }, 3000);
+    }
     
     // 应用4级商店的"自动采购功能"
     if (gameData.shop.level >= 3) {
@@ -5449,19 +5804,22 @@ function updateShopCountdown() {
     
     // 检查2级商店的免费刷新次数
     if (gameData.shop.level >= 1) { // 1级商店对应等级0，2级商店对应等级1
-        const freeRefreshElapsed = (now - gameData.shop.lastFreeRefreshTime) / 1000;
-        if (freeRefreshElapsed >= 300) { // 5分钟 = 300秒
-            // 增加免费刷新次数
-            gameData.shop.freeRefreshes++;
-            
-            // 更新最后免费刷新时间
-            gameData.shop.lastFreeRefreshTime = now;
-            
-            // 显示获得免费刷新次数的消息
-            addMessage('商店自动获得了一次免费刷新次数！');
-            
-            // 更新商店UI
-            updateShopUI();
+        // 免费刷新上限50次
+        if (gameData.shop.freeRefreshes < 50) {
+            const freeRefreshElapsed = (now - gameData.shop.lastFreeRefreshTime) / 1000;
+            if (freeRefreshElapsed >= 600) { // 10分钟 = 600秒（增加一倍）
+                // 增加免费刷新次数
+                gameData.shop.freeRefreshes++;
+                
+                // 更新最后免费刷新时间
+                gameData.shop.lastFreeRefreshTime = now;
+                
+                // 显示获得免费刷新次数的消息
+                addMessage('商店自动获得了一次免费刷新次数！');
+                
+                // 更新商店UI
+                updateShopUI();
+            }
         }
     }
     
@@ -5474,7 +5832,7 @@ function updateShopCountdown() {
 function manualRefreshShop() {
     if (gameData.player.gold >= gameData.shop.manualRefreshCost) {
         gameData.player.gold -= gameData.shop.manualRefreshCost;
-        refreshShopItems();
+        refreshShopItems(true); // 传递true表示手动刷新（使用金币）
         updateUI();
         addMessage(`手动刷新商店成功，消耗1000金币`);
         updateMessages();
@@ -6819,12 +7177,318 @@ function applyGoldenGloveExpBonus(baseExp) {
     return baseExp;
 }
 
+// 显示存钱罐发现弹窗
+function showPiggyBankPopup() {
+    // 创建弹窗容器
+    const popup = document.createElement('div');
+    popup.style.position = 'fixed';
+    popup.style.top = '50%';
+    popup.style.left = '50%';
+    popup.style.transform = 'translate(-50%, -50%)';
+    popup.style.backgroundColor = 'white';
+    popup.style.padding = '30px';
+    popup.style.borderRadius = '10px';
+    popup.style.boxShadow = '0 0 20px rgba(0, 0, 0, 0.3)';
+    popup.style.zIndex = '10000';
+    popup.style.textAlign = 'center';
+    popup.style.minWidth = '300px';
+    
+    // 弹窗内容
+    popup.innerHTML = `
+        <h2 style="margin-top: 0; color: #333;">发现存钱罐！</h2>
+        <p style="margin-bottom: 20px; color: #666;">你在挖掘铜矿时发现了一个神秘的存钱罐，是否要打开它？</p>
+        <div style="display: flex; justify-content: space-around; gap: 10px;">
+            <button id="open-piggy-bank" style="padding: 10px 20px; background-color: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px;">打开</button>
+            <button id="leave-piggy-bank" style="padding: 10px 20px; background-color: #f44336; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px;">不打开</button>
+        </div>
+    `;
+    
+    // 添加到文档
+    document.body.appendChild(popup);
+    
+    // 添加按钮事件监听
+    document.getElementById('open-piggy-bank').addEventListener('click', function() {
+        // 打开存钱罐
+        openPiggyBank();
+        // 移除弹窗
+        popup.remove();
+    });
+    
+    document.getElementById('leave-piggy-bank').addEventListener('click', function() {
+        // 不打开存钱罐，获得谨慎地矿工效果
+        applyCarefulMinerEffect();
+        // 移除弹窗
+        popup.remove();
+    });
+}
+
+// 打开存钱罐，随机获得一种效果
+function openPiggyBank() {
+    const random = Math.random();
+    const now = Date.now();
+    
+    // 初始化效果对象
+    if (!gameData.activeEffects) {
+        gameData.activeEffects = {};
+    }
+    
+    if (random < 0.2) {
+        // 第一种：随机获得1~5000金币
+        const goldAmount = Math.floor(Math.random() * 5000) + 1;
+        gameData.player.gold += goldAmount;
+        showEffectNotification(`恭喜获得金币奖励！获得 ${goldAmount} 金币。`);
+        addMessage(`获得金币奖励：${goldAmount} 金币！`);
+    } else if (random < 0.4) {
+        // 第二种：获得5分钟铁匠祝福效果，提升所有配方的爆率5%
+        gameData.activeEffects.blacksmithBlessing = {
+            active: true,
+            startTime: now,
+            endTime: now + 5 * 60 * 1000,
+            description: '铁匠祝福效果，所有配方的爆率+5%'
+        };
+        showEffectNotification('恭喜获得祝福效果：铁匠祝福效果，该效果使所有配方的爆率提升5%，持续5分钟。');
+        addMessage('获得铁匠祝福效果：所有配方的爆率+5%，持续5分钟！');
+    } else if (random < 0.6) {
+        // 第三种：丢失矿锄效果，矿锄的效果强制消失1分钟
+        gameData.activeEffects.lostPickaxe = {
+            active: true,
+            startTime: now,
+            endTime: now + 1 * 60 * 1000,
+            description: '丢失矿锄效果，矿锄的效果强制消失1分钟'
+        };
+        showEffectNotification('恭喜获得祝福效果：丢失矿锄效果，该效果使矿锄的效果强制消失1分钟。');
+        addMessage('获得丢失矿锄效果：矿锄的效果强制消失1分钟！');
+    } else if (random < 0.8) {
+        // 第四种：走丢的矿车效果，矿车的效果强制消失1分钟
+        gameData.activeEffects.lostCart = {
+            active: true,
+            startTime: now,
+            endTime: now + 1 * 60 * 1000,
+            description: '走丢的矿车效果，矿车的效果强制消失1分钟'
+        };
+        showEffectNotification('恭喜获得祝福效果：走丢的矿车效果，该效果使矿车的效果强制消失1分钟。');
+        addMessage('获得走丢的矿车效果：矿车的效果强制消失1分钟！');
+    } else {
+        // 第五种：闪电蓄能，头灯无消耗运作5分钟
+        gameData.activeEffects.lightningCharge = {
+            active: true,
+            startTime: now,
+            endTime: now + 5 * 60 * 1000,
+            description: '闪电蓄能效果，头灯无消耗运作5分钟'
+        };
+        showEffectNotification('恭喜获得祝福效果：闪电蓄能效果，该效果使头灯无消耗运作5分钟。');
+        addMessage('获得闪电蓄能效果：头灯无消耗运作5分钟！');
+    }
+    
+    // 保存游戏数据
+    saveGame();
+}
+
+// 应用谨慎地矿工效果
+function applyCarefulMinerEffect() {
+    const now = Date.now();
+    
+    // 初始化效果对象
+    if (!gameData.activeEffects) {
+        gameData.activeEffects = {};
+    }
+    
+    // 5分钟内所出售的物品售价翻倍，商店中只会刷出打折物品
+    gameData.activeEffects.carefulMiner = {
+        active: true,
+        startTime: now,
+        endTime: now + 5 * 60 * 1000,
+        description: '谨慎地矿工效果，出售物品售价翻倍，商店只刷出打折物品'
+    };
+    
+    showEffectNotification('获得谨慎地矿工效果：5分钟内所出售的物品售价翻倍，商店中只会刷出打折物品。');
+    addMessage('获得谨慎地矿工效果：出售物品售价翻倍，商店只刷出打折物品，持续5分钟！');
+    
+    // 保存游戏数据
+    saveGame();
+}
+
+// 显示效果生效时的网页提示
+function showEffectNotification(message) {
+    // 创建提示元素
+    const notification = document.createElement('div');
+    notification.style.position = 'fixed';
+    notification.style.top = '20px';
+    notification.style.right = '20px';
+    notification.style.backgroundColor = '#4CAF50';
+    notification.style.color = 'white';
+    notification.style.padding = '15px 20px';
+    notification.style.borderRadius = '5px';
+    notification.style.boxShadow = '0 0 10px rgba(0, 0, 0, 0.2)';
+    notification.style.zIndex = '10000';
+    notification.style.fontSize = '14px';
+    notification.style.maxWidth = '300px';
+    notification.style.wordWrap = 'break-word';
+    notification.style.animation = 'slideIn 0.3s ease-out';
+    
+    // 添加动画样式
+    const style = document.createElement('style');
+    style.textContent = `
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+    `;
+    document.head.appendChild(style);
+    
+    notification.textContent = message;
+    document.body.appendChild(notification);
+    
+    // 3秒后移除提示
+    setTimeout(() => {
+        notification.style.animation = 'slideOut 0.3s ease-in';
+        setTimeout(() => {
+            notification.remove();
+            style.remove();
+        }, 300);
+    }, 3000);
+}
+
 // 修改定时器，同时更新进度和UI
 setInterval(() => {
     updateToolProgress();
     updateToolUI();
     updateGoldenGloveUI();
+    updateActiveEffects();
+    updateEffectsUI();
 }, 1000); // 每秒更新一次
+
+// 更新活跃效果
+function updateActiveEffects() {
+    const now = Date.now();
+    
+    if (!gameData.activeEffects) return;
+    
+    // 检查所有活跃效果是否过期
+    for (const [effectName, effect] of Object.entries(gameData.activeEffects)) {
+        if (effect.active && now > effect.endTime) {
+            effect.active = false;
+            addMessage(`${effect.description} 效果已结束！`);
+        }
+    }
+    
+    // 移除已结束的效果
+    for (const [effectName, effect] of Object.entries(gameData.activeEffects)) {
+        if (!effect.active) {
+            delete gameData.activeEffects[effectName];
+        }
+    }
+    
+    saveGame();
+}
+
+// 在玩家信息边上显示效果倒计时和进度条
+function updateEffectsUI() {
+    const now = Date.now();
+    
+    if (!gameData.activeEffects) return;
+    
+    // 找到玩家信息区域
+    const playerInfoContainer = document.querySelector('.player-info');
+    if (!playerInfoContainer) return;
+    
+    // 清除现有的效果UI
+    const existingEffectsUI = document.getElementById('active-effects-ui');
+    if (existingEffectsUI) {
+        existingEffectsUI.remove();
+    }
+    
+    // 检查是否有活跃效果
+    const activeEffects = Object.values(gameData.activeEffects).filter(effect => effect.active);
+    if (activeEffects.length === 0) return;
+    
+    // 创建效果UI容器
+    const effectsUIContainer = document.createElement('div');
+    effectsUIContainer.id = 'active-effects-ui';
+    effectsUIContainer.style.marginTop = '15px';
+    effectsUIContainer.style.padding = '10px';
+    effectsUIContainer.style.backgroundColor = '#f8f9fa';
+    effectsUIContainer.style.border = '1px solid #dee2e6';
+    effectsUIContainer.style.borderRadius = '5px';
+    
+    // 添加标题
+    const title = document.createElement('h4');
+    title.textContent = '活跃效果';
+    title.style.marginTop = '0';
+    title.style.marginBottom = '10px';
+    title.style.fontSize = '14px';
+    effectsUIContainer.appendChild(title);
+    
+    // 添加每个效果的进度条
+    activeEffects.forEach(effect => {
+        const effectContainer = document.createElement('div');
+        effectContainer.style.marginBottom = '10px';
+        
+        const effectName = document.createElement('div');
+        effectName.textContent = effect.description;
+        effectName.style.fontSize = '12px';
+        effectName.style.marginBottom = '5px';
+        effectContainer.appendChild(effectName);
+        
+        const progressBarContainer = document.createElement('div');
+        progressBarContainer.style.height = '8px';
+        progressBarContainer.style.backgroundColor = '#e9ecef';
+        progressBarContainer.style.borderRadius = '4px';
+        progressBarContainer.style.overflow = 'hidden';
+        
+        const progressBar = document.createElement('div');
+        const remainingTime = effect.endTime - now;
+        const totalTime = effect.endTime - effect.startTime;
+        const progress = 100 - (remainingTime / totalTime) * 100;
+        
+        progressBar.style.height = '100%';
+        progressBar.style.width = `${progress}%`;
+        progressBar.style.backgroundColor = '#4CAF50';
+        progressBar.style.transition = 'width 1s linear';
+        
+        progressBarContainer.appendChild(progressBar);
+        effectContainer.appendChild(progressBarContainer);
+        
+        const timeRemaining = document.createElement('div');
+        const minutes = Math.floor(remainingTime / 60000);
+        const seconds = Math.floor((remainingTime % 60000) / 1000);
+        timeRemaining.textContent = `剩余时间: ${minutes}:${seconds.toString().padStart(2, '0')}`;
+        timeRemaining.style.fontSize = '10px';
+        timeRemaining.style.marginTop = '3px';
+        timeRemaining.style.color = '#6c757d';
+        effectContainer.appendChild(timeRemaining);
+        
+        effectsUIContainer.appendChild(effectContainer);
+    });
+    
+    // 添加到玩家信息区域
+    playerInfoContainer.appendChild(effectsUIContainer);
+}
+
+// 计算采矿锄的加速效果
+function calculatePickaxeBonus(level) {
+    let bonus = 0;
+    
+    if (level < 40) {
+        // 40级以前：每5级一个阶段，每个阶段增加9%的加速效果
+        const stage = Math.min(8, Math.floor(level / 5) + 1);
+        bonus = stage * 9;
+    } else {
+        // 40级以后：每级增加0.5%的加速效果
+        const baseBonus = 72; // 40级时的基础加速效果（8个阶段 × 9%）
+        const additionalBonus = (level - 39) * 0.5;
+        bonus = baseBonus + additionalBonus;
+    }
+    
+    // 最高加速效果限制在90%
+    return Math.min(90, bonus).toFixed(1);
+}
 
 window.addEventListener('DOMContentLoaded', initGame);
 
