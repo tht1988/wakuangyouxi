@@ -14,6 +14,7 @@ let gameData = {
         cloth: 0
     },
     messages: [],
+    activeEffects: {}, // 活跃效果对象，存储所有当前活跃的效果
     tools: {
         pickaxe: {
             level: 0,
@@ -520,18 +521,31 @@ function generateMineralGrid() {
         
         // 添加合金配方掉落几率信息
         let recipeHTML = '';
+        
+        // 检查是否有铁匠祝福效果
+        const hasBlacksmithBlessing = gameData.activeEffects && gameData.activeEffects.blacksmithBlessing && gameData.activeEffects.blacksmithBlessing.active;
+        const blessingBonus = hasBlacksmithBlessing ? 5 : 0; // 铁匠祝福增加5%爆率
+        
         switch (mineral.name) {
             case '铁矿':
-                recipeHTML = '<div class="mineral-recipe">合金配方: 铜铁合金配方 (10%)</div>';
+                const ironBaseChance = 10;
+                const ironActualChance = ironBaseChance + blessingBonus;
+                recipeHTML = `<div class="mineral-recipe" style="color: green;">合金配方: 铜铁合金配方 (${ironActualChance}%)${hasBlacksmithBlessing ? ' <span style="color: gold;">(铁匠祝福+5%)</span>' : ''}</div>`;
                 break;
             case '钴矿':
-                recipeHTML = '<div class="mineral-recipe">合金配方: 铜钴合金配方 (1%)</div>';
+                const cobaltBaseChance = 1;
+                const cobaltActualChance = cobaltBaseChance + blessingBonus;
+                recipeHTML = `<div class="mineral-recipe" style="color: green;">合金配方: 铜钴合金配方 (${cobaltActualChance}%)${hasBlacksmithBlessing ? ' <span style="color: gold;">(铁匠祝福+5%)</span>' : ''}</div>`;
                 break;
             case '镍矿':
-                recipeHTML = '<div class="mineral-recipe">合金配方: 铜镍合金配方 (0.1%)</div>';
+                const nickelBaseChance = 0.1;
+                const nickelActualChance = nickelBaseChance + blessingBonus;
+                recipeHTML = `<div class="mineral-recipe" style="color: green;">合金配方: 铜镍合金配方 (${nickelActualChance}%)${hasBlacksmithBlessing ? ' <span style="color: gold;">(铁匠祝福+5%)</span>' : ''}</div>`;
                 break;
             case '银矿':
-                recipeHTML = '<div class="mineral-recipe">合金配方: 铜银合金配方 (0.01%)</div>';
+                const silverBaseChance = 0.01;
+                const silverActualChance = silverBaseChance + blessingBonus;
+                recipeHTML = `<div class="mineral-recipe" style="color: green;">合金配方: 铜银合金配方 (${silverActualChance}%)${hasBlacksmithBlessing ? ' <span style="color: gold;">(铁匠祝福+5%)</span>' : ''}</div>`;
                 break;
         }
         
@@ -1089,20 +1103,60 @@ function continuousMine(mineralName) {
     const interval = 100;
     progressFill.style.width = '0%';
     countdown.textContent = `${actualTime.toFixed(2)}s`;
-    continuousProgressInterval = setInterval(() => {
-        continuousElapsedTime += interval;
-        const progress = Math.min(100, (continuousElapsedTime / (actualTime * 1000)) * 100);
-        const remaining = Math.max(0, actualTime - (continuousElapsedTime / 1000));
-        progressFill.style.width = `${progress}%`;
-        countdown.textContent = `${remaining.toFixed(2)}s`;
-    }, interval);
+    // 创建进度更新间隔
+    function createProgressInterval(miningTime) {
+        if (continuousProgressInterval) {
+            clearInterval(continuousProgressInterval);
+        }
+        continuousElapsedTime = 0;
+        continuousProgressInterval = setInterval(() => {
+            continuousElapsedTime += interval;
+            const progress = Math.min(100, (continuousElapsedTime / (miningTime * 1000)) * 100);
+            const remaining = Math.max(0, miningTime - (continuousElapsedTime / 1000));
+            const currentMineralEl = document.querySelector(`[data-name="${currentContinuousMineral}"]`);
+            if (currentMineralEl) {
+                const currentProgressFill = currentMineralEl.querySelector('.progress-fill');
+                const currentCountdown = currentMineralEl.querySelector('.countdown');
+                if (currentProgressFill && currentCountdown) {
+                    currentProgressFill.style.width = `${progress}%`;
+                    currentCountdown.textContent = `${remaining.toFixed(2)}s`;
+                }
+            }
+        }, interval);
+    }
+    
+    // 初始创建进度更新间隔
+    createProgressInterval(actualTime);
     // 定义一个函数来处理连续采矿
     function startNextMining() {
         const currentMineral = minerals.find(m => m.name === currentContinuousMineral);
         if (currentMineral && continuousMining) {
             // 重新计算加速效果，确保等级提升后效果立即生效
-            const pickaxeBonus = Math.min(0.4, gameData.tools.pickaxe.level * 0.06);
+            // 检查是否有丢失矿锄效果
+            const hasLostPickaxeEffect = gameData.activeEffects && gameData.activeEffects.lostPickaxe && gameData.activeEffects.lostPickaxe.active;
+            const pickaxeLevel = gameData.tools.pickaxe ? gameData.tools.pickaxe.level : 0;
+            let pickaxeBonus = 0;
+            
+            if (!hasLostPickaxeEffect) {
+                if (pickaxeLevel < 40) {
+                    // 40级以前：每5级一个阶段，每个阶段增加9%的加速效果
+                    const stage = Math.min(8, Math.floor(pickaxeLevel / 5) + 1);
+                    pickaxeBonus = stage * 0.09;
+                } else {
+                    // 40级以后：每级增加0.5%的加速效果
+                    const baseBonus = 0.72; // 40级时的基础加速效果（8个阶段 × 9%）
+                    const additionalBonus = (pickaxeLevel - 39) * 0.005;
+                    pickaxeBonus = baseBonus + additionalBonus;
+                }
+                
+                // 最高加速效果限制在90%
+                pickaxeBonus = Math.min(0.9, pickaxeBonus);
+            }
+            
             const currentActualTime = currentMineral.baseTime * (1 - pickaxeBonus);
+            
+            // 更新进度条的采矿时间
+            createProgressInterval(currentActualTime);
             
             // 设置下一次采矿的间隔
             continuousMiningInterval = setInterval(() => {
@@ -1122,7 +1176,27 @@ function continuousMine(mineralName) {
                                 updatedProgressFill.style.width = '0%';
                                 
                                 // 重新计算加速效果，因为工具等级可能在两次采矿之间发生变化
-                                const updatedPickaxeBonus = Math.min(0.4, gameData.tools.pickaxe.level * 0.06);
+                                // 检查是否有丢失矿锄效果
+                                const updatedHasLostPickaxeEffect = gameData.activeEffects && gameData.activeEffects.lostPickaxe && gameData.activeEffects.lostPickaxe.active;
+                                const updatedPickaxeLevel = gameData.tools.pickaxe ? gameData.tools.pickaxe.level : 0;
+                                let updatedPickaxeBonus = 0;
+                                
+                                if (!updatedHasLostPickaxeEffect) {
+                                    if (updatedPickaxeLevel < 40) {
+                                        // 40级以前：每5级一个阶段，每个阶段增加9%的加速效果
+                                        const updatedStage = Math.min(8, Math.floor(updatedPickaxeLevel / 5) + 1);
+                                        updatedPickaxeBonus = updatedStage * 0.09;
+                                    } else {
+                                        // 40级以后：每级增加0.5%的加速效果
+                                        const updatedBaseBonus = 0.72; // 40级时的基础加速效果（8个阶段 × 9%）
+                                        const updatedAdditionalBonus = (updatedPickaxeLevel - 39) * 0.005;
+                                        updatedPickaxeBonus = updatedBaseBonus + updatedAdditionalBonus;
+                                    }
+                                    
+                                    // 最高加速效果限制在90%
+                                    updatedPickaxeBonus = Math.min(0.9, updatedPickaxeBonus);
+                                }
+                                
                                 const updatedActualTime = updatedMineral.baseTime * (1 - updatedPickaxeBonus);
                                 updatedCountdown.textContent = `${updatedActualTime.toFixed(2)}s`;
                             }
@@ -1211,8 +1285,7 @@ function stopContinuousMining() {
             continuousBtn.textContent = `连续开采 (需要采矿锄5级)`;
         }
     }
-    // 停止连续采矿后更新矿物网格，确保开采时间的显示是最新的
-    generateMineralGrid();
+    
 }
 
 function completeMining(mineral) {
@@ -2003,8 +2076,13 @@ function updateUI() {
     if (!gameData.tools.cart) gameData.tools.cart = { crafted: false, active: true };
     if (!gameData.tools.headlight) gameData.tools.headlight = { crafted: false, active: true };
     
+    // 检查是否有走丢的矿车效果
+    const hasLostCartEffect = gameData.activeEffects && gameData.activeEffects.lostCart && gameData.activeEffects.lostCart.active;
+    
     const cartText = gameData.tools.cart.crafted 
-        ? `lv${gameData.tools.cart.level} (${gameData.tools.cart.exp || 0}/${gameData.tools.cart.nextExp || 50}) ${gameData.tools.cart.active ? '(使用中)' : '(已暂停)'}` 
+        ? hasLostCartEffect 
+            ? `lv${gameData.tools.cart.level} (${gameData.tools.cart.exp || 0}/${gameData.tools.cart.nextExp || 50}) (矿车走丢中)` 
+            : `lv${gameData.tools.cart.level} (${gameData.tools.cart.exp || 0}/${gameData.tools.cart.nextExp || 50}) ${gameData.tools.cart.active ? '(使用中)' : '(已暂停)'}` 
         : '未制作';
     document.getElementById('cart-status').textContent = cartText;
     
@@ -2012,8 +2090,10 @@ function updateUI() {
     const cartFuelTypeSelect = document.getElementById('cart-fuel-type');
     const addCartFuelBtn = document.getElementById('add-cart-fuel');
     if (cartFuelTypeSelect) {
+        // 检查是否有走丢的矿车效果
+        const hasLostCartEffect = gameData.activeEffects && gameData.activeEffects.lostCart && gameData.activeEffects.lostCart.active;
         if (gameData.tools.cart.crafted) {
-            if (gameData.tools.cart.optimized) {
+            if (gameData.tools.cart.optimized && !hasLostCartEffect) {
                 cartFuelTypeSelect.value = gameData.tools.cart.fuelType || 'coal';
                 cartFuelTypeSelect.disabled = false;
             } else {
@@ -2028,10 +2108,24 @@ function updateUI() {
     
     // 设置添加燃料按钮状态
     if (addCartFuelBtn) {
-        if (gameData.tools.cart.crafted && gameData.tools.cart.optimized) {
+        // 检查是否有走丢的矿车效果
+        const hasLostCartEffect = gameData.activeEffects && gameData.activeEffects.lostCart && gameData.activeEffects.lostCart.active;
+        if (gameData.tools.cart.crafted && gameData.tools.cart.optimized && !hasLostCartEffect) {
             addCartFuelBtn.disabled = false;
         } else {
             addCartFuelBtn.disabled = true;
+        }
+    }
+    
+    // 设置矿车切换按钮状态
+    const toggleCartBtn = document.getElementById('toggle-cart');
+    if (toggleCartBtn) {
+        // 检查是否有走丢的矿车效果
+        const hasLostCartEffect = gameData.activeEffects && gameData.activeEffects.lostCart && gameData.activeEffects.lostCart.active;
+        if (gameData.tools.cart.crafted && !hasLostCartEffect) {
+            toggleCartBtn.disabled = false;
+        } else {
+            toggleCartBtn.disabled = true;
         }
     }
     
@@ -2063,9 +2157,6 @@ function updateUI() {
     document.getElementById('headlight-status').textContent = headlightText;
     
     document.getElementById('furnace-level').textContent = gameData.furnace.level;
-    
-    // 检查商店解锁条件，确保商店界面能够正确显示
-    checkShopUnlock();
     
     // 更新加工台UI，确保加工台界面能够正确显示
     updateWorkshopUI();
@@ -2605,6 +2696,10 @@ function resetGainedInfo() {
         items: {}
     };
     updateGainedInfo();
+    
+    // 重置挂机时间
+    afkTimerSeconds = 0;
+    updateAfkTimerDisplay();
 }
 
 function addGainedExp(amount) {
@@ -2655,16 +2750,24 @@ function updateMessages() {
 function generateMiningMessage(mineral, drops, headlightGoldConsumed = false, totalExp = null) {
     let message = '恭喜获得：';
     
+    // 检查是否有走丢的矿车效果
+    const hasLostCartEffect = gameData.activeEffects && gameData.activeEffects.lostCart && gameData.activeEffects.lostCart.active;
+    
     // 计算矿物数量，考虑矿车加成
     let baseAmount = 1;
     let cartBonus = 0;
     let cartConsume = 0;
-    if (gameData.tools.cart && gameData.tools.cart.crafted && gameData.tools.cart.active) {
-        // 检查煤矿数量
-        if (hasEnoughItem('煤矿', 1)) {
+    if (gameData.tools.cart && gameData.tools.cart.crafted && gameData.tools.cart.active && !hasLostCartEffect) {
+        const fuelType = gameData.tools.cart.fuelType || 'coal';
+        // 检查燃料数量
+        if (fuelType === 'coal' && hasEnoughItem('煤矿', 1)) {
             // 矿车每5级提升1个采矿数量
             cartBonus = Math.floor(gameData.tools.cart.level / 5);
             cartConsume = 1; // 矿车消耗1煤矿
+        } else if (fuelType === 'fuel' && gameData.tools.cart.currentFuel > 0) {
+            // 矿车每5级提升1个采矿数量
+            cartBonus = Math.floor(gameData.tools.cart.level / 5);
+            cartConsume = 1; // 矿车消耗1燃料
         }
     }
     const totalAmount = baseAmount + cartBonus;
@@ -2673,7 +2776,8 @@ function generateMiningMessage(mineral, drops, headlightGoldConsumed = false, to
     if (cartBonus > 0) {
         message += `${mineral.name}*${totalAmount}（基础*${baseAmount}+矿车*${cartBonus}）, `;
         if (cartConsume > 0) {
-            message += `煤矿-${cartConsume}（矿车消耗）, `;
+            const fuelType = gameData.tools.cart.fuelType || 'coal';
+            message += `${fuelType === 'coal' ? '煤矿' : '燃料剩余次数'}-${cartConsume}（矿车消耗）, `;
         }
     } else {
         message += `${mineral.name}*${baseAmount}, `;
@@ -2753,6 +2857,12 @@ function addEventListeners() {
     // 矿车和头灯控制按钮
     document.getElementById('toggle-cart').addEventListener('click', () => {
         if (gameData.tools.cart && gameData.tools.cart.crafted) {
+            // 检查是否有走丢的矿车效果
+            const hasLostCartEffect = gameData.activeEffects && gameData.activeEffects.lostCart && gameData.activeEffects.lostCart.active;
+            if (hasLostCartEffect) {
+                alert('矿车走丢了！暂时无法控制矿车。');
+                return;
+            }
             gameData.tools.cart.active = !gameData.tools.cart.active;
             addMessage(gameData.tools.cart.active ? '矿车已恢复使用！' : '矿车已暂停使用！');
             updateUI();
@@ -2883,6 +2993,15 @@ function addEventListeners() {
     // 矿车燃料类型选择事件监听器
     document.getElementById('cart-fuel-type').addEventListener('change', function() {
         if (gameData.tools.cart && gameData.tools.cart.crafted) {
+            // 检查是否有走丢的矿车效果
+            const hasLostCartEffect = gameData.activeEffects && gameData.activeEffects.lostCart && gameData.activeEffects.lostCart.active;
+            if (hasLostCartEffect) {
+                alert('矿车走丢了！暂时无法切换燃料类型。');
+                // 重置选择为当前燃料类型
+                this.value = gameData.tools.cart.fuelType || 'coal';
+                return;
+            }
+            
             if (gameData.tools.cart.optimized) {
                 gameData.tools.cart.fuelType = this.value;
                 addMessage(`矿车燃料类型已切换为${this.value === 'coal' ? '煤矿' : '高级燃料'}！`);
@@ -5412,8 +5531,8 @@ function renderShopItemsInline() {
 }
 
 function buyShopItem(itemName, price) {
-    // 找到物品在商店列表中的索引
-    const itemIndex = gameData.shop.items.findIndex(item => item.name === itemName && item.price === price);
+    // 找到物品在商店列表中的索引 - 使用 Math.floor 比较价格，因为显示时已取整
+    const itemIndex = gameData.shop.items.findIndex(item => item.name === itemName && Math.floor(item.price) === price);
     
     if (gameData.player.gold >= price && itemIndex !== -1) {
         // 扣除金币
@@ -5760,12 +5879,30 @@ function refreshShopItems(isManualRefresh = false, isFreeRefresh = false) {
                 }
             }
         } else {
-            break;
+            // 如果没有可用物品，添加一个基础物品（棉布*100）作为默认物品
+            items.push({
+                name: '棉布*100',
+                price: 400,
+                probability: 0.2
+            });
         }
     }
     
+    // 最终保险：确保物品数组至少有3个物品，防止手动刷新后不显示物品
+    while (items.length < 3) {
+        // 直接添加基础物品，绕过过滤逻辑
+        items.push({
+            name: '棉布*100',
+            price: 400,
+            probability: 0.2
+        });
+    }
+    
     gameData.shop.items = items;
-    gameData.shop.lastRefresh = Date.now();
+    // 只有自动刷新时才重置lastRefresh时间，手动刷新不重置
+    if (!isManualRefresh) {
+        gameData.shop.lastRefresh = Date.now();
+    }
     
     // 更新旅行背包出现状态，用于确保不会连续出现2次
     gameData.shop.lastHadTravelBackpack = items.some(item => item.name === '旅行背包');
@@ -5797,7 +5934,8 @@ function refreshShopItems(isManualRefresh = false, isFreeRefresh = false) {
     }
     
     // 应用4级商店的"自动采购功能"
-    if (gameData.shop.level >= 3) {
+    // 手动刷新时不立即执行自动采购，让玩家有机会查看和选择物品
+    if (gameData.shop.level >= 3 && !isManualRefresh) {
         const itemsToRemove = [];
         items.forEach((item, index) => {
             // 检查是否是非涨价物品
@@ -5939,6 +6077,7 @@ function manualRefreshShop() {
         gameData.player.gold -= gameData.shop.manualRefreshCost;
         refreshShopItems(true); // 传递true表示手动刷新（使用金币）
         updateUI();
+        updateShopUI(); // 确保商店UI更新，显示新物品
         addMessage(`手动刷新商店成功，消耗1000金币`);
         updateMessages();
     } else {
@@ -6700,6 +6839,12 @@ function checkWorkshopUpgrade() {
 // 添加燃料到矿车燃料舱
 function addCartFuel() {
     if (gameData.tools.cart && gameData.tools.cart.crafted) {
+        // 检查是否有走丢的矿车效果
+        const hasLostCartEffect = gameData.activeEffects && gameData.activeEffects.lostCart && gameData.activeEffects.lostCart.active;
+        if (hasLostCartEffect) {
+            alert('矿车走丢了！暂时无法添加燃料。');
+            return;
+        }
         if (!gameData.tools.cart.optimized) {
             alert('矿车尚未优化！需要先在加工台优化矿车才能添加燃料。');
             return;
@@ -7058,11 +7203,29 @@ function updateToolProgress() {
         if (!gameData.tools.headlight.lastBatteryUpdate) gameData.tools.headlight.lastBatteryUpdate = Date.now();
         
         if (gameData.tools.headlight.fuelType === 'battery') {
+            // 检查是否有闪电蓄能效果
+            const hasLightningCharge = gameData.activeEffects && gameData.activeEffects.lightningCharge && gameData.activeEffects.lightningCharge.active;
+            
             // 更新电池能量
             const now = Date.now();
             const timeSinceLast = now - gameData.tools.headlight.lastBatteryUpdate;
-            gameData.tools.headlight.batteryEnergy = Math.max(0, gameData.tools.headlight.batteryEnergy - (timeSinceLast / 1000));
             gameData.tools.headlight.lastBatteryUpdate = now;
+            
+            if (hasLightningCharge) {
+                // 闪电蓄能效果：持续为电池充电，不消耗能量
+                // 确保头灯属性完整
+                if (!gameData.tools.headlight.maxBatteryEnergy) gameData.tools.headlight.maxBatteryEnergy = 300;
+                
+                // 每秒钟充电10点能量
+                const chargeAmount = (timeSinceLast / 1000) * 10;
+                gameData.tools.headlight.batteryEnergy = Math.min(
+                    gameData.tools.headlight.maxBatteryEnergy,
+                    gameData.tools.headlight.batteryEnergy + chargeAmount
+                );
+            } else {
+                // 正常情况：消耗电池能量
+                gameData.tools.headlight.batteryEnergy = Math.max(0, gameData.tools.headlight.batteryEnergy - (timeSinceLast / 1000));
+            }
             
             // 检查电池能量是否耗尽
             if (gameData.tools.headlight.batteryEnergy <= 0) {
@@ -7296,15 +7459,43 @@ function applyGoldenGloveExpBonus(baseExp) {
 
 // 显示存钱罐发现弹窗
 function showPiggyBankPopup() {
+    // 再次检查是否有活跃的存钱罐效果，确保有效果时不显示新的弹窗
+    const hasActiveEffect = gameData.activeEffects && Object.values(gameData.activeEffects).some(effect => effect.active);
+    if (hasActiveEffect) {
+        return; // 如果有活跃效果，不再显示新的存钱罐
+    }
+    
+    // 检查是否已经有存钱罐弹窗显示
+    if (document.querySelector('.piggy-bank-popup')) {
+        return; // 如果已经有弹窗，不再重复创建
+    }
+    
     // 检查页面是否可见
     if (document.hidden) {
         // 如果页面不可见，延迟显示弹窗，直到页面可见
+        // 先检查是否已经有visibilitychange事件监听器，避免堆叠
+        const existingListener = document.querySelector('.piggy-bank-visibility-listener');
+        if (existingListener) {
+            return; // 如果已经有监听器，不再重复添加
+        }
+        
+        // 添加一个标记，防止重复添加事件监听器
+        const listenerMarker = document.createElement('div');
+        listenerMarker.className = 'piggy-bank-visibility-listener';
+        listenerMarker.style.display = 'none';
+        document.body.appendChild(listenerMarker);
+        
         const checkVisibility = () => {
             if (!document.hidden) {
-                // 页面可见后，重新调用showPiggyBankPopup函数
-                showPiggyBankPopup();
-                // 移除事件监听
+                // 页面可见后，再次检查是否有活跃效果
+                const hasActiveEffect = gameData.activeEffects && Object.values(gameData.activeEffects).some(effect => effect.active);
+                if (!hasActiveEffect) {
+                    // 只有在没有活跃效果时才显示弹窗
+                    createAndShowPopup();
+                }
+                // 无论是否显示弹窗，都移除事件监听和标记
                 document.removeEventListener('visibilitychange', checkVisibility);
+                listenerMarker.remove();
             }
         };
         
@@ -7321,6 +7512,7 @@ function showPiggyBankPopup() {
 function createAndShowPopup() {
     // 创建弹窗容器
     const popup = document.createElement('div');
+    popup.className = 'piggy-bank-popup';
     popup.style.position = 'fixed';
     popup.style.top = '50%';
     popup.style.left = '50%';
@@ -7332,15 +7524,16 @@ function createAndShowPopup() {
     popup.style.zIndex = '10000';
     popup.style.textAlign = 'center';
     popup.style.minWidth = '300px';
+    popup.style.pointerEvents = 'auto'; // 确保弹窗可以接收点击事件
     
     // 弹窗内容
     popup.innerHTML = `
         <h2 style="margin-top: 0; color: #333;">发现存钱罐！</h2>
         <p style="margin-bottom: 20px; color: #666;">你在挖掘铜矿时发现了一个神秘的存钱罐，是否要打开它？</p>
-        <div style="margin-bottom: 15px; font-size: 14px; color: #999;">(1分钟内未选择将自动关闭)</div>
+        <div style="margin-bottom: 15px; font-size: 14px; color: #999;">(1分钟内未选择将自动选择不打开)</div>
         <div style="display: flex; justify-content: space-around; gap: 10px;">
-            <button id="open-piggy-bank" style="padding: 10px 20px; background-color: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px;">打开</button>
-            <button id="leave-piggy-bank" style="padding: 10px 20px; background-color: #f44336; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px;">不打开</button>
+            <button class="open-piggy-btn" style="padding: 10px 20px; background-color: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px;">打开</button>
+            <button class="leave-piggy-btn" style="padding: 10px 20px; background-color: #f44336; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px;">不打开</button>
         </div>
     `;
     
@@ -7351,8 +7544,71 @@ function createAndShowPopup() {
     const timer = setTimeout(() => {
         // 不打开存钱罐，获得谨慎地矿工效果
         applyCarefulMinerEffect();
-        // 移除弹窗
+        // 先移除弹窗，再更新UI，确保渲染正确
         popup.remove();
+        // 使用setTimeout确保UI更新在DOM渲染周期中执行
+        setTimeout(() => {
+            generateMineralGrid();
+            updateUI();
+            
+            // 如果有正在进行的连续采矿，恢复其UI显示
+            if (continuousMining && currentContinuousMineral) {
+                // 延迟一小段时间，确保DOM已经更新
+                setTimeout(() => {
+                    // 重新查找矿物元素和进度条
+                    const mineralEl = document.querySelector(`[data-name="${currentContinuousMineral}"]`);
+                    if (mineralEl) {
+                        const mineBtn = mineralEl.querySelector('.mine-btn');
+                        const continuousBtn = mineralEl.querySelector('.continuous-mine-btn');
+                        const progressContainer = mineralEl.querySelector('.progress-container');
+                        const progressFill = mineralEl.querySelector('.progress-fill');
+                        const countdown = mineralEl.querySelector('.countdown');
+                        
+                        if (mineBtn && continuousBtn && progressContainer && progressFill && countdown) {
+                            // 更新按钮状态
+                            mineBtn.disabled = true;
+                            continuousBtn.textContent = '停止连续开采';
+                            continuousBtn.disabled = false;
+                            
+                            // 显示进度容器
+                            progressContainer.style.display = 'block';
+                            
+                            // 重新计算加速效果
+                            const mineral = minerals.find(m => m.name === currentContinuousMineral);
+                            if (mineral) {
+                                // 检查是否有丢失矿锄效果
+                                const hasLostPickaxeEffect = gameData.activeEffects && gameData.activeEffects.lostPickaxe && gameData.activeEffects.lostPickaxe.active;
+                                const pickaxeLevel = gameData.tools.pickaxe ? gameData.tools.pickaxe.level : 0;
+                                let pickaxeBonus = 0;
+                                
+                                if (!hasLostPickaxeEffect) {
+                                    if (pickaxeLevel < 40) {
+                                        // 40级以前：每5级一个阶段，每个阶段增加9%的加速效果
+                                        const stage = Math.min(8, Math.floor(pickaxeLevel / 5) + 1);
+                                        pickaxeBonus = stage * 0.09;
+                                    } else {
+                                        // 40级以后：每级增加0.5%的加速效果
+                                        const baseBonus = 0.72; // 40级时的基础加速效果（8个阶段 × 9%）
+                                        const additionalBonus = (pickaxeLevel - 39) * 0.005;
+                                        pickaxeBonus = baseBonus + additionalBonus;
+                                    }
+                                    
+                                    // 最高加速效果限制在90%
+                                    pickaxeBonus = Math.min(0.9, pickaxeBonus);
+                                }
+                                const actualTime = mineral.baseTime * (1 - pickaxeBonus);
+                                
+                                // 更新进度条和倒计时
+                                const progress = Math.min(100, (continuousElapsedTime / (actualTime * 1000)) * 100);
+                                const remaining = Math.max(0, actualTime - (continuousElapsedTime / 1000));
+                                progressFill.style.width = `${progress}%`;
+                                countdown.textContent = `${remaining.toFixed(2)}s`;
+                            }
+                        }
+                    }
+                }, 100);
+            }
+        }, 0);
     }, 60000); // 1分钟 = 60000毫秒
     
     // 通用清理函数
@@ -7361,29 +7617,98 @@ function createAndShowPopup() {
         popup.remove();
     }
     
-    // 添加按钮事件监听
-    document.getElementById('open-piggy-bank').addEventListener('click', function() {
+    // 在当前弹窗中查找按钮，而不是在整个文档中查找
+    const openBtn = popup.querySelector('.open-piggy-btn');
+    const leaveBtn = popup.querySelector('.leave-piggy-btn');
+    
+    // 使用onclick事件，避免事件监听堆叠
+    openBtn.onclick = function() {
         // 打开存钱罐
         openPiggyBank();
+        // 先关闭弹窗，再更新UI，确保渲染正确
         cleanup();
-    });
+        // 使用setTimeout确保UI更新在DOM渲染周期中执行
+        setTimeout(() => {
+            generateMineralGrid();
+            updateUI();
+            
+            // 如果有正在进行的连续采矿，恢复其UI显示
+            if (continuousMining && currentContinuousMineral) {
+                // 延迟一小段时间，确保DOM已经更新
+                setTimeout(() => {
+                    // 重新查找矿物元素和进度条
+                    const mineralEl = document.querySelector(`[data-name="${currentContinuousMineral}"]`);
+                    if (mineralEl) {
+                        const mineBtn = mineralEl.querySelector('.mine-btn');
+                        const continuousBtn = mineralEl.querySelector('.continuous-mine-btn');
+                        const progressContainer = mineralEl.querySelector('.progress-container');
+                        const progressFill = mineralEl.querySelector('.progress-fill');
+                        const countdown = mineralEl.querySelector('.countdown');
+                        
+                        if (mineBtn && continuousBtn && progressContainer && progressFill && countdown) {
+                            // 更新按钮状态
+                            mineBtn.disabled = true;
+                            continuousBtn.textContent = '停止连续开采';
+                            continuousBtn.disabled = false;
+                            
+                            // 显示进度容器
+                            progressContainer.style.display = 'block';
+                            
+                            // 重新计算加速效果
+                            const mineral = minerals.find(m => m.name === currentContinuousMineral);
+                            if (mineral) {
+                                // 检查是否有丢失矿锄效果
+                                const hasLostPickaxeEffect = gameData.activeEffects && gameData.activeEffects.lostPickaxe && gameData.activeEffects.lostPickaxe.active;
+                                const pickaxeLevel = gameData.tools.pickaxe ? gameData.tools.pickaxe.level : 0;
+                                let pickaxeBonus = 0;
+                                
+                                if (!hasLostPickaxeEffect) {
+                                    if (pickaxeLevel < 40) {
+                                        // 40级以前：每5级一个阶段，每个阶段增加9%的加速效果
+                                        const stage = Math.min(8, Math.floor(pickaxeLevel / 5) + 1);
+                                        pickaxeBonus = stage * 0.09;
+                                    } else {
+                                        // 40级以后：每级增加0.5%的加速效果
+                                        const baseBonus = 0.72; // 40级时的基础加速效果（8个阶段 × 9%）
+                                        const additionalBonus = (pickaxeLevel - 39) * 0.005;
+                                        pickaxeBonus = baseBonus + additionalBonus;
+                                    }
+                                    
+                                    // 最高加速效果限制在90%
+                                    pickaxeBonus = Math.min(0.9, pickaxeBonus);
+                                }
+                                const actualTime = mineral.baseTime * (1 - pickaxeBonus);
+                                
+                                // 更新进度条和倒计时
+                                const progress = Math.min(100, (continuousElapsedTime / (actualTime * 1000)) * 100);
+                                const remaining = Math.max(0, actualTime - (continuousElapsedTime / 1000));
+                                progressFill.style.width = `${progress}%`;
+                                countdown.textContent = `${remaining.toFixed(2)}s`;
+                            }
+                        }
+                    }
+                }, 100);
+            }
+        }, 0);
+    };
     
-    document.getElementById('leave-piggy-bank').addEventListener('click', function() {
+    leaveBtn.onclick = function() {
         // 不打开存钱罐，获得谨慎地矿工效果
         applyCarefulMinerEffect();
+        // 先关闭弹窗，再更新UI，确保渲染正确
         cleanup();
-    });
+        // 使用setTimeout确保UI更新在DOM渲染周期中执行
+        setTimeout(() => {
+            generateMineralGrid();
+            updateUI();
+        }, 0);
+    };
 }
 
 // 打开存钱罐，随机获得一种效果
 function openPiggyBank() {
     const random = Math.random();
     const now = Date.now();
-    
-    // 初始化效果对象
-    if (!gameData.activeEffects) {
-        gameData.activeEffects = {};
-    }
     
     if (random < 0.2) {
         // 第一种：随机获得1~5000金币
@@ -7401,6 +7726,65 @@ function openPiggyBank() {
         };
         showEffectNotification('恭喜获得祝福效果：铁匠祝福效果，该效果使所有配方的爆率提升5%，持续5分钟。');
         addMessage('获得铁匠祝福效果：所有配方的爆率+5%，持续5分钟！');
+        // 立即更新矿物列表，显示铁匠祝福效果
+        generateMineralGrid();
+        
+        // 如果有正在进行的连续采矿，恢复其UI显示
+        if (continuousMining && currentContinuousMineral) {
+            // 延迟一小段时间，确保DOM已经更新
+            setTimeout(() => {
+                // 重新查找矿物元素和进度条
+                const mineralEl = document.querySelector(`[data-name="${currentContinuousMineral}"]`);
+                if (mineralEl) {
+                    const mineBtn = mineralEl.querySelector('.mine-btn');
+                    const continuousBtn = mineralEl.querySelector('.continuous-mine-btn');
+                    const progressContainer = mineralEl.querySelector('.progress-container');
+                    const progressFill = mineralEl.querySelector('.progress-fill');
+                    const countdown = mineralEl.querySelector('.countdown');
+                    
+                    if (mineBtn && continuousBtn && progressContainer && progressFill && countdown) {
+                        // 更新按钮状态
+                        mineBtn.disabled = true;
+                        continuousBtn.textContent = '停止连续开采';
+                        continuousBtn.disabled = false;
+                        
+                        // 显示进度容器
+                        progressContainer.style.display = 'block';
+                        
+                        // 重新计算加速效果
+                        const mineral = minerals.find(m => m.name === currentContinuousMineral);
+                        if (mineral) {
+                            // 检查是否有丢失矿锄效果
+                            const hasLostPickaxeEffect = gameData.activeEffects && gameData.activeEffects.lostPickaxe && gameData.activeEffects.lostPickaxe.active;
+                            const pickaxeLevel = gameData.tools.pickaxe ? gameData.tools.pickaxe.level : 0;
+                            let pickaxeBonus = 0;
+                            
+                            if (!hasLostPickaxeEffect) {
+                                if (pickaxeLevel < 40) {
+                                    const stage = Math.min(8, Math.floor(pickaxeLevel / 5) + 1);
+                                    pickaxeBonus = stage * 0.09;
+                                } else {
+                                    const baseBonus = 0.72;
+                                    const additionalBonus = (pickaxeLevel - 39) * 0.005;
+                                    pickaxeBonus = baseBonus + additionalBonus;
+                                }
+                                pickaxeBonus = Math.min(0.9, pickaxeBonus);
+                            }
+                            
+                            const actualTime = mineral.baseTime * (1 - pickaxeBonus);
+                            
+                            // 更新进度条和倒计时
+                            const progress = Math.min(100, (continuousElapsedTime / (actualTime * 1000)) * 100);
+                            const remaining = Math.max(0, actualTime - (continuousElapsedTime / 1000));
+                            progressFill.style.width = `${progress}%`;
+                            countdown.textContent = `${remaining.toFixed(2)}s`;
+                        }
+                    }
+                }
+            }, 100);
+        }
+        
+        updateUI();
     } else if (random < 0.6) {
         // 第三种：丢失矿锄效果，矿锄的效果强制消失1分钟
         gameData.activeEffects.lostPickaxe = {
@@ -7409,7 +7793,7 @@ function openPiggyBank() {
             endTime: now + 1 * 60 * 1000,
             description: '丢失矿锄效果，矿锄的效果强制消失1分钟'
         };
-        showEffectNotification('恭喜获得祝福效果：丢失矿锄效果，该效果使矿锄的效果强制消失1分钟。');
+        showEffectNotification('获得负面效果：丢失矿锄效果，该效果使矿锄的效果强制消失1分钟。', true);
         addMessage('获得丢失矿锄效果：矿锄的效果强制消失1分钟！');
     } else if (random < 0.8) {
         // 第四种：走丢的矿车效果，矿车的效果强制消失1分钟
@@ -7419,18 +7803,18 @@ function openPiggyBank() {
             endTime: now + 1 * 60 * 1000,
             description: '走丢的矿车效果，矿车的效果强制消失1分钟'
         };
-        showEffectNotification('恭喜获得祝福效果：走丢的矿车效果，该效果使矿车的效果强制消失1分钟。');
+        showEffectNotification('获得负面效果：走丢的矿车效果，该效果使矿车的效果强制消失1分钟。', true);
         addMessage('获得走丢的矿车效果：矿车的效果强制消失1分钟！');
     } else {
-        // 第五种：闪电蓄能，头灯无消耗运作5分钟
+        // 第五种：闪电蓄能，持续为电池充电且不消耗能量，头灯无消耗运作1分钟
         gameData.activeEffects.lightningCharge = {
             active: true,
             startTime: now,
-            endTime: now + 5 * 60 * 1000,
-            description: '闪电蓄能效果，头灯无消耗运作5分钟'
+            endTime: now + 1 * 60 * 1000,
+            description: '闪电蓄能效果，持续为电池充电且不消耗能量，头灯无消耗运作1分钟'
         };
-        showEffectNotification('恭喜获得祝福效果：闪电蓄能效果，该效果使头灯无消耗运作5分钟。');
-        addMessage('获得闪电蓄能效果：头灯无消耗运作5分钟！');
+        showEffectNotification('恭喜获得祝福效果：闪电蓄能效果，该效果持续为电池充电且不消耗能量，头灯无消耗运作1分钟。');
+        addMessage('获得闪电蓄能效果：持续为电池充电且不消耗能量，头灯无消耗运作1分钟！');
     }
     
     // 保存游戏数据
@@ -7441,21 +7825,16 @@ function openPiggyBank() {
 function applyCarefulMinerEffect() {
     const now = Date.now();
     
-    // 初始化效果对象
-    if (!gameData.activeEffects) {
-        gameData.activeEffects = {};
-    }
-    
-    // 5分钟内所出售的物品售价翻倍，商店中只会刷出打折物品
+    // 1分钟内所出售的物品售价翻倍，商店中只会刷出打折物品
     gameData.activeEffects.carefulMiner = {
         active: true,
         startTime: now,
-        endTime: now + 5 * 60 * 1000,
+        endTime: now + 1 * 60 * 1000,
         description: '谨慎地矿工效果，出售物品售价翻倍，商店只刷出打折物品'
     };
     
-    showEffectNotification('获得谨慎地矿工效果：5分钟内所出售的物品售价翻倍，商店中只会刷出打折物品。');
-    addMessage('获得谨慎地矿工效果：出售物品售价翻倍，商店只刷出打折物品，持续5分钟！');
+    showEffectNotification('获得谨慎地矿工效果：1分钟内所出售的物品售价翻倍，商店中只会刷出打折物品。');
+    addMessage('获得谨慎地矿工效果：出售物品售价翻倍，商店只刷出打折物品，持续1分钟！');
     
     // 保存游戏数据
     saveGame();
@@ -7490,13 +7869,13 @@ function checkActiveEffects() {
 setInterval(checkActiveEffects, 1000); // 每秒检查一次
 
 // 显示效果生效时的网页提示
-function showEffectNotification(message) {
+function showEffectNotification(message, isNegative = false) {
     // 创建提示元素
     const notification = document.createElement('div');
     notification.style.position = 'fixed';
     notification.style.top = '20px';
     notification.style.right = '20px';
-    notification.style.backgroundColor = '#4CAF50';
+    notification.style.backgroundColor = isNegative ? '#f44336' : '#4CAF50';
     notification.style.color = 'white';
     notification.style.padding = '15px 20px';
     notification.style.borderRadius = '5px';
@@ -7518,6 +7897,16 @@ function showEffectNotification(message) {
             to {
                 transform: translateX(0);
                 opacity: 1;
+            }
+        }
+        @keyframes slideOut {
+            from {
+                transform: translateX(0);
+                opacity: 1;
+            }
+            to {
+                transform: translateX(100%);
+                opacity: 0;
             }
         }
     `;
@@ -7548,6 +7937,7 @@ setInterval(() => {
 // 更新活跃效果
 function updateActiveEffects() {
     const now = Date.now();
+    let effectsChanged = false;
     
     if (!gameData.activeEffects) return;
     
@@ -7556,6 +7946,7 @@ function updateActiveEffects() {
         if (effect.active && now > effect.endTime) {
             effect.active = false;
             addMessage(`${effect.description} 效果已结束！`);
+            effectsChanged = true;
         }
     }
     
@@ -7563,10 +7954,74 @@ function updateActiveEffects() {
     for (const [effectName, effect] of Object.entries(gameData.activeEffects)) {
         if (!effect.active) {
             delete gameData.activeEffects[effectName];
+            effectsChanged = true;
         }
     }
     
-    saveGame();
+    // 如果效果发生变化，更新UI
+    if (effectsChanged) {
+        // 更新矿物网格，确保采矿时间和效果正确显示
+        generateMineralGrid();
+        
+        // 如果有正在进行的连续采矿，恢复其UI显示
+        if (continuousMining && currentContinuousMineral) {
+            // 延迟一小段时间，确保DOM已经更新
+            setTimeout(() => {
+                // 重新查找矿物元素和进度条
+                const mineralEl = document.querySelector(`[data-name="${currentContinuousMineral}"]`);
+                if (mineralEl) {
+                    const mineBtn = mineralEl.querySelector('.mine-btn');
+                    const continuousBtn = mineralEl.querySelector('.continuous-mine-btn');
+                    const progressContainer = mineralEl.querySelector('.progress-container');
+                    const progressFill = mineralEl.querySelector('.progress-fill');
+                    const countdown = mineralEl.querySelector('.countdown');
+                    
+                    if (mineBtn && continuousBtn && progressContainer && progressFill && countdown) {
+                        // 更新按钮状态
+                        mineBtn.disabled = true;
+                        continuousBtn.textContent = '停止连续开采';
+                        continuousBtn.disabled = false;
+                        
+                        // 显示进度容器
+                        progressContainer.style.display = 'block';
+                        
+                        // 重新计算加速效果
+                        const mineral = minerals.find(m => m.name === currentContinuousMineral);
+                        if (mineral) {
+                            // 检查是否有丢失矿锄效果
+                            const hasLostPickaxeEffect = gameData.activeEffects && gameData.activeEffects.lostPickaxe && gameData.activeEffects.lostPickaxe.active;
+                            const pickaxeLevel = gameData.tools.pickaxe ? gameData.tools.pickaxe.level : 0;
+                            let pickaxeBonus = 0;
+                            
+                            if (!hasLostPickaxeEffect) {
+                                if (pickaxeLevel < 40) {
+                                    const stage = Math.min(8, Math.floor(pickaxeLevel / 5) + 1);
+                                    pickaxeBonus = stage * 0.09;
+                                } else {
+                                    const baseBonus = 0.72;
+                                    const additionalBonus = (pickaxeLevel - 39) * 0.005;
+                                    pickaxeBonus = baseBonus + additionalBonus;
+                                }
+                                pickaxeBonus = Math.min(0.9, pickaxeBonus);
+                            }
+                            
+                            const actualTime = mineral.baseTime * (1 - pickaxeBonus);
+                            
+                            // 更新进度条和倒计时
+                            const progress = Math.min(100, (continuousElapsedTime / (actualTime * 1000)) * 100);
+                            const remaining = Math.max(0, actualTime - (continuousElapsedTime / 1000));
+                            progressFill.style.width = `${progress}%`;
+                            countdown.textContent = `${remaining.toFixed(2)}s`;
+                        }
+                    }
+                }
+            }, 100);
+        }
+        
+        // 更新UI
+        updateUI();
+        saveGame();
+    }
 }
 
 // 在玩家信息边上显示效果倒计时和进度条
