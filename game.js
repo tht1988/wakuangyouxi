@@ -1608,7 +1608,13 @@ function completeMining(mineral) {
     // 矿车额外矿物经验（只有当矿车激活且没有走丢的矿车效果时才计算）
     let cartBonus = 0;
     if (gameData.tools.cart && gameData.tools.cart.crafted && gameData.tools.cart.active && !hasLostCartEffect) {
-        cartBonus = 1 + Math.floor(gameData.tools.cart.level / 5);
+        const fuelType = gameData.tools.cart.fuelType || 'coal';
+        if (fuelType === 'coal') {
+            cartBonus = 1 + Math.floor(gameData.tools.cart.level / 5);
+        } else {
+            // 使用高级燃料时，额外加5
+            cartBonus = 1 + Math.floor(gameData.tools.cart.level / 5) + 5;
+        }
         totalExp += mineral.exp * cartBonus;
     }
     
@@ -2163,6 +2169,37 @@ function updateUI() {
     
     // 更新工具详细说明
     updateToolDescriptions(toolDescriptions);
+    
+    // 检查并更新工具升级按钮的显示状态
+    // 采矿锄升级按钮
+    const upgradePickaxeBtn = document.getElementById('upgrade-pickaxe');
+    if (upgradePickaxeBtn) {
+        if (gameData.tools.pickaxe.level >= 50) {
+            upgradePickaxeBtn.style.display = 'none';
+        } else {
+            upgradePickaxeBtn.style.display = 'inline-block';
+        }
+    }
+    
+    // 矿车升级按钮
+    const upgradeCartBtn = document.getElementById('upgrade-cart');
+    if (upgradeCartBtn) {
+        if (gameData.tools.cart.crafted && gameData.tools.cart.level >= 50) {
+            upgradeCartBtn.style.display = 'none';
+        } else {
+            upgradeCartBtn.style.display = 'inline-block';
+        }
+    }
+    
+    // 头灯升级按钮
+    const upgradeHeadlightBtn = document.getElementById('upgrade-headlight');
+    if (upgradeHeadlightBtn) {
+        if (gameData.tools.headlight.crafted && gameData.tools.headlight.level >= 50) {
+            upgradeHeadlightBtn.style.display = 'none';
+        } else {
+            upgradeHeadlightBtn.style.display = 'inline-block';
+        }
+    }
 }
 
 function updateToolDescriptions(descriptions) {
@@ -2765,8 +2802,8 @@ function generateMiningMessage(mineral, drops, headlightGoldConsumed = false, to
             cartBonus = Math.floor(gameData.tools.cart.level / 5);
             cartConsume = 1; // 矿车消耗1煤矿
         } else if (fuelType === 'fuel' && gameData.tools.cart.currentFuel > 0) {
-            // 矿车每5级提升1个采矿数量
-            cartBonus = Math.floor(gameData.tools.cart.level / 5);
+            // 矿车每5级提升1个采矿数量，使用燃料时额外加5
+            cartBonus = Math.floor(gameData.tools.cart.level / 5) + 5;
             cartConsume = 1; // 矿车消耗1燃料
         }
     }
@@ -4825,9 +4862,27 @@ function updateFilterPanel() {
     });
     
     // 添加其他可获得的物品
-    const otherItems = ['棉布', '织布', '加工台图纸', '电池图纸', '燃料配方', '电池', '燃料', '木材', '金手套'];
+    const otherItems = ['棉布', '织布', '粗麻布', '尼龙布', '加工台图纸', '电池图纸', '燃料配方', '电池', '燃料', '木材', '金手套', '铜铁合金', '铜钴合金', '铜镍合金', '铜银合金', '石灰', '煤炭', '铜铁合金配方', '铜钴合金配方', '铜镍合金配方', '铜银合金配方'];
     otherItems.forEach(item => {
         allAvailableItems.push(item);
+    });
+    
+    // 添加背包中已有的物品
+    const backpackItems = Object.keys(gameData.backpack.items);
+    backpackItems.forEach(itemName => {
+        const baseItemName = itemName.split('_')[0];
+        if (!allAvailableItems.includes(baseItemName)) {
+            allAvailableItems.push(baseItemName);
+        }
+    });
+    
+    // 添加临时背包中已有的物品
+    const tempItems = Object.keys(gameData.tempBackpack.items);
+    tempItems.forEach(itemName => {
+        const baseItemName = itemName.split('_')[0];
+        if (!allAvailableItems.includes(baseItemName)) {
+            allAvailableItems.push(baseItemName);
+        }
     });
     
     // 获取已设置过滤的物品
@@ -4908,24 +4963,24 @@ function removeFilter() {
     }
     
     // 检查该物品是否有过滤设置
-    if (!gameData.filterSettings[selectedItem]) {
-        alert('该物品没有过滤设置！');
+    if (gameData.filterSettings[selectedItem] !== undefined) {
+        // 移除过滤设置
+        delete gameData.filterSettings[selectedItem];
+        
+        // 更新过滤设置显示
+        updateFilterSettingsDisplay();
+        
+        // 显示成功消息
+        addMessage(`已移除 ${selectedItem} 的过滤设置`);
+        updateMessages();
+        
+        // 确保UI更新
+        updateUI();
+        saveGame();
+    } else {
+        // 该物品没有过滤设置，不显示错误提示，直接返回
         return;
     }
-    
-    // 移除过滤设置
-    delete gameData.filterSettings[selectedItem];
-    
-    // 更新过滤设置显示
-    updateFilterSettingsDisplay();
-    
-    // 显示成功消息
-    addMessage(`已移除 ${selectedItem} 的过滤设置`);
-    updateMessages();
-    
-    // 确保UI更新
-    updateUI();
-    saveGame();
 }
 
 // 执行过滤，自动出售多余的物品
@@ -5170,13 +5225,13 @@ function updateShopUI() {
                                 <option value="加工台图纸">加工台图纸</option>
                                 <option value="电池图纸">电池图纸</option>
                                 <option value="燃料配方">燃料配方</option>
-                                <option value="棉布*100">棉布*100</option>
-                                <option value="电池*1">电池*1</option>
-                                <option value="燃料*1">燃料*1</option>
-                                <option value="木材*100">木材*100</option>
+                                <option value="棉布">棉布</option>
+                                <option value="电池">电池</option>
+                                <option value="燃料">燃料</option>
+                                <option value="木材">木材</option>
                                 <option value="金手套">金手套</option>
-                                <option value="石矿*100">石矿*100</option>
-                                <option value="煤矿*100">煤矿*100</option>
+                                <option value="石矿">石矿</option>
+                                <option value="煤矿">煤矿</option>
                             </select>
                             <button id="set-needed-item" style="margin-left: 10px; padding: 5px 10px;">设置</button>
                         </div>
@@ -5197,13 +5252,13 @@ function updateShopUI() {
                             <input type="checkbox" id="auto-item-1" value="加工台图纸"> 加工台图纸<br>
                             <input type="checkbox" id="auto-item-2" value="电池图纸"> 电池图纸<br>
                             <input type="checkbox" id="auto-item-3" value="燃料配方"> 燃料配方<br>
-                            <input type="checkbox" id="auto-item-4" value="棉布*100"> 棉布*100<br>
-                            <input type="checkbox" id="auto-item-5" value="电池*1"> 电池*1<br>
-                            <input type="checkbox" id="auto-item-6" value="燃料*1"> 燃料*1<br>
-                            <input type="checkbox" id="auto-item-7" value="木材*100"> 木材*100<br>
+                            <input type="checkbox" id="auto-item-4" value="棉布"> 棉布<br>
+                            <input type="checkbox" id="auto-item-5" value="电池"> 电池<br>
+                            <input type="checkbox" id="auto-item-6" value="燃料"> 燃料<br>
+                            <input type="checkbox" id="auto-item-7" value="木材"> 木材<br>
                             <input type="checkbox" id="auto-item-8" value="金手套"> 金手套<br>
-                            <input type="checkbox" id="auto-item-9" value="石矿*100"> 石矿*100<br>
-                            <input type="checkbox" id="auto-item-10" value="煤矿*100"> 煤矿*100<br>
+                            <input type="checkbox" id="auto-item-9" value="石矿"> 石矿<br>
+                            <input type="checkbox" id="auto-item-10" value="煤矿"> 煤矿<br>
                             <div style="margin-top: 10px;">
                                 <input type="checkbox" id="auto-purchase-discounts" ${gameData.shop.autoPurchaseDiscounts ? 'checked' : ''}>
                                 <label for="auto-purchase-discounts">同时购买打折优惠物品</label>
@@ -5753,7 +5808,11 @@ function refreshShopItems(isManualRefresh = false, isFreeRefresh = false) {
                     
                     if (gameData.shop.level >= 2 && gameData.shop.neededItem) {
                         // 为需要的物品增加概率
-                        const neededItem = availableItems.find(item => item.name === gameData.shop.neededItem);
+                        const neededItem = availableItems.find(item => {
+                            const [itemBaseName] = item.name.split('*');
+                            const [neededBaseName] = gameData.shop.neededItem.split('*');
+                            return itemBaseName === neededBaseName;
+                        });
                         if (neededItem && Math.random() < 0.4) { // 40%概率选择需要的物品
                             selectedItem = neededItem;
                         }
@@ -5771,11 +5830,15 @@ function refreshShopItems(isManualRefresh = false, isFreeRefresh = false) {
                 // 旅行背包不参与打折优惠
                 if (finalItem.name !== '旅行背包') {
                     // 应用3级商店的价格调整
-                    if (gameData.shop.level >= 2 && gameData.shop.neededItem && finalItem.name === gameData.shop.neededItem) {
-                        // 价格为300%
-                        finalItem.price = finalItem.price * 3;
-                        finalItem.isPriceIncrease = true;
-                        finalItem.priceIncreaseText = '需求价格！';
+                    if (gameData.shop.level >= 2 && gameData.shop.neededItem) {
+                        const [finalItemBaseName] = finalItem.name.split('*');
+                        const [neededBaseName] = gameData.shop.neededItem.split('*');
+                        if (finalItemBaseName === neededBaseName) {
+                            // 价格为300%
+                            finalItem.price = finalItem.price * 3;
+                            finalItem.isPriceIncrease = true;
+                            finalItem.priceIncreaseText = '需求价格！';
+                        }
                     } else if (!finalItem.isDiscount && !isFreeRefresh) {
                         const randomEvent = Math.random();
                         if (randomEvent < 0.1) { // 10%几率打折
@@ -6027,6 +6090,7 @@ function refreshShopItems(isManualRefresh = false, isFreeRefresh = false) {
     
     renderShopItems();
     updateShopCountdown();
+    updateShopUI();
 }
 
 function updateShopCountdown() {
