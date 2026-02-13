@@ -121,13 +121,14 @@ let gameData = {
     minersGuild: {
         unlocked: false, // 矿工协会解锁状态
         miners: [], // 矿工列表
+        storage: {}, // 协会仓库，存储物品
         autoMining: {
             enabled: false, // 自动挖矿是否启用
             selectedMineral: null, // 选择的矿物
             interval: 60, // 自动挖矿间隔（秒）
             lastMiningTime: 0 // 上次挖矿时间
         },
-        commissionRate: 0.1, // 矿工佣金比例（10%）
+        commissionRate: 0, // 暂时关闭佣金（0%）
         maxMiners: 5, // 最大矿工数量
         // 徽章升级系统
         badgeSystem: {
@@ -155,6 +156,7 @@ let gameData = {
             triggered: false, // 是否已触发
             completed: false, // 是否已完成
             requiredAmount: 9999, // 需要的铜矿数量
+            declineCount: 0, // 拒绝次数
             reward: {
                 type: 'badge',
                 name: '初级矿工徽章'
@@ -206,6 +208,28 @@ const backpackExpansions = {
         isSpecial: true
     }
 };
+
+// 合并同类型矿物，将所有带后缀的矿物合并到基础矿物中
+function mergeSameTypeItems() {
+    const mergedItems = {};
+    
+    // 遍历所有物品，合并同类型矿物
+    for (const [itemName, count] of Object.entries(gameData.backpack.items)) {
+        const baseName = itemName.split('_')[0];
+        if (!mergedItems[baseName]) {
+            mergedItems[baseName] = 0;
+        }
+        mergedItems[baseName] += count;
+    }
+    
+    // 清空原物品列表
+    gameData.backpack.items = {};
+    
+    // 重新添加合并后的物品
+    for (const [baseName, totalCount] of Object.entries(mergedItems)) {
+        gameData.backpack.items[baseName] = totalCount;
+    }
+}
 
 const minerals = [
     {
@@ -315,19 +339,21 @@ const minerals = [
     }
 ];
 
-let saveSlots = [];
+// 单存档模式，移除多存档支持
 let currentSaveSlot = "save1";
 
+// 移除saveSlots变量，单存档模式不需要
+// let saveSlots = [];
+
 function initSaveSystem() {
-    const keys = Object.keys(localStorage);
-    saveSlots = keys.filter(key => key.startsWith("miningGame-save"));
-    if (saveSlots.length === 0) {
-        saveSlots.push("save1");
+    // 单存档模式，直接检查当前存档是否存在
+    if (!localStorage.getItem(`miningGame-${currentSaveSlot}`)) {
         saveGame();
     }
-    updateSaveSlotsUI();
 }
 
+// 注释掉多存档相关函数，单存档模式下不再需要
+/*
 function updateSaveSlotsUI() {
     const saveSlotsContainer = document.getElementById('save-slots-container');
     if (!saveSlotsContainer) return;
@@ -359,7 +385,9 @@ function updateSaveSlotsUI() {
     saveSlotsContainer.appendChild(slotsList);
     saveSlotsContainer.appendChild(newSlotBtn);
 }
+*/
 
+/*
 function createNewSaveSlot() {
     const newSlot = `save${saveSlots.length + 1}`;
     currentSaveSlot = newSlot;
@@ -390,6 +418,7 @@ function deleteSaveSlot(slot) {
     updateSaveSlotsUI();
     showSaveMessage('存档已删除！');
 }
+*/
 
 function calculateBackpackStats() {
     if (!gameData.backpack.baseCapacity) {
@@ -451,6 +480,21 @@ function initGame() {
     generateBackpack();
     generateExpansionSlots();
     
+    // 合并所有同类型矿物，确保没有带后缀的矿物
+    mergeSameTypeItems();
+    
+    // 合并后再次检查特殊事件
+    checkSpecialEvents();
+    
+    // 确保所有矿工都有intimacy属性
+    if (gameData.minersGuild && gameData.minersGuild.miners) {
+        gameData.minersGuild.miners.forEach(miner => {
+            if (miner.intimacy === undefined || miner.intimacy === null) {
+                miner.intimacy = 0;
+            }
+        });
+    }
+    
     // 立即更新所有UI
     updateWorkshopUI();
     updateShopUI();
@@ -507,8 +551,20 @@ function checkNPCCopperPurchaseEvent() {
         return;
     }
     
-    // 检查玩家是否拥有足够的铜矿
-    const copperAmount = gameData.backpack.items['铜矿'] || 0;
+    // 先合并所有铜矿类型，确保计算准确
+    mergeSameTypeItems();
+    
+    // 检查玩家是否拥有足够的铜矿（包括所有铜矿类型）
+    let copperAmount = 0;
+    for (const [itemName, count] of Object.entries(gameData.backpack.items)) {
+        if (itemName.startsWith('铜矿')) {
+            copperAmount += count;
+        }
+    }
+    
+    // 调试信息
+    console.log('铜矿总量:', copperAmount);
+    console.log('需求数量:', event.requiredAmount);
     
     // 检查玩家等级是否足够（铜矿需要15级）
     const playerLevel = gameData.player.level;
@@ -667,6 +723,7 @@ function createNPCTradeInterface() {
                     <p>你好，年轻的矿工！</p>
                     <p>我是矿工协会的使者，正在寻找高质量的铜矿。</p>
                     <p>我注意到你拥有大量的铜矿储备，我愿意用矿工协会的徽章来换取你的铜矿。</p>
+                    <p style="font-weight: bold; margin-top: 15px;">⚠️ 矿工协会提示：如果你拒绝这次交易，下次我再来时需要的铜矿数量会增加1%哦！<span style="color: #FF0000;">每次拒绝都会<span style="font-size: 1.2em;">累积增加</span>哦！</span></p>
                 </div>
                 <div class="trade-details">
                     <div class="trade-item">
@@ -699,16 +756,35 @@ function acceptNPCTrade() {
     const event = gameData.specialEvents.npcCopperPurchase;
     const requiredAmount = event.requiredAmount;
     
-    // 检查玩家是否拥有足够的铜矿
-    const copperAmount = gameData.backpack.items['铜矿'] || 0;
+    // 先合并所有铜矿类型，确保计算准确
+    mergeSameTypeItems();
+    
+    // 检查玩家是否拥有足够的铜矿（包括所有铜矿类型）
+    let copperAmount = 0;
+    console.log('合并后的背包物品:', gameData.backpack.items);
+    for (const [itemName, count] of Object.entries(gameData.backpack.items)) {
+        if (itemName.startsWith('铜矿')) {
+            copperAmount += count;
+            console.log('铜矿类型:', itemName, '数量:', count);
+        }
+    }
+    
+    console.log('最终铜矿总量:', copperAmount);
+    console.log('需求数量:', requiredAmount);
     
     if (copperAmount < requiredAmount) {
         addMessage('铜矿数量不足，无法完成交易！');
+        addMessage(`当前铜矿总量: ${copperAmount}，需要: ${requiredAmount}`);
         return;
     }
     
     // 扣除铜矿
     gameData.backpack.items['铜矿'] -= requiredAmount;
+    
+    // 如果铜矿数量为0或负数，删除该键
+    if (gameData.backpack.items['铜矿'] <= 0) {
+        delete gameData.backpack.items['铜矿'];
+    }
     
     // 给予初级矿工徽章
     if (!gameData.badges) {
@@ -743,6 +819,26 @@ function acceptNPCTrade() {
 
 // 拒绝NPC交易
 function declineNPCTrade() {
+    // 确保specialEvents对象存在
+    if (!gameData.specialEvents || !gameData.specialEvents.npcCopperPurchase) {
+        return;
+    }
+    
+    const event = gameData.specialEvents.npcCopperPurchase;
+    
+    // 增加拒绝次数
+    event.declineCount = (event.declineCount || 0) + 1;
+    
+    // 计算涨价幅度：每次拒绝增加declineCount%，例如第一次1%，第二次2%，第三次3%...
+    const increasePercentage = event.declineCount;
+    const increaseMultiplier = 1 + increasePercentage / 100;
+    
+    // 增加需求量，并向下取整
+    event.requiredAmount = Math.floor(event.requiredAmount * increaseMultiplier);
+    
+    // 重置触发状态，允许再次触发
+    event.triggered = false;
+    
     // 关闭交易界面
     const panel = document.querySelector('.npc-trade-overlay');
     if (panel) {
@@ -751,6 +847,10 @@ function declineNPCTrade() {
     
     // 添加消息
     addMessage('你拒绝了NPC的交易请求。');
+    addMessage(`下次矿工协会使者来访时，需要的铜矿数量将增加${increasePercentage}%！`);
+    
+    // 保存游戏
+    saveGame();
 }
 
 // 挂机计时器变量
@@ -895,7 +995,7 @@ let autoMiningInterval = null;
 
 // 启动自动挖矿
 function startAutoMining() {
-    if (!gameData.minersGuild.autoMining.enabled || !gameData.minersGuild.autoMining.selectedMineral) {
+    if (!gameData.minersGuild.autoMining.enabled) {
         return;
     }
     
@@ -904,20 +1004,120 @@ function startAutoMining() {
         clearInterval(autoMiningInterval);
     }
     
-    // 设置新的定时器
+    // 直接设置20秒的定时器，从当前时间开始计时，不立即执行
+    const interval = gameData.minersGuild.autoMining.interval * 1000;
     autoMiningInterval = setInterval(() => {
-        const now = Date.now();
-        const lastMiningTime = gameData.minersGuild.autoMining.lastMiningTime;
-        const interval = gameData.minersGuild.autoMining.interval * 1000;
-        
-        if (now - lastMiningTime >= interval) {
-            performAutoMining();
-            gameData.minersGuild.autoMining.lastMiningTime = now;
-            saveGame();
-        }
-    }, 1000);
+        performAutoMining();
+        gameData.minersGuild.autoMining.lastMiningTime = Date.now();
+        saveGame();
+    }, interval);
     
     addMessage('自动挖矿已启动！');
+}
+
+// 切换挖矿状态
+function toggleMining() {
+    // 检查是否有已派遣的矿工
+    const assignedMiners = gameData.minersGuild.miners.filter(miner => miner.assignedMineral);
+    
+    // 如果当前没有启用自动挖矿
+    if (!gameData.minersGuild.autoMining.enabled) {
+        if (assignedMiners.length === 0) {
+            addMessage('没有已派遣的矿工，请先派遣矿工到矿场！');
+            return;
+        }
+        
+        // 设置所有已派遣矿工的工作状态
+        gameData.minersGuild.miners.forEach(miner => {
+            if (miner.assignedMineral) {
+                miner.working = true;
+            }
+        });
+        
+        // 启用自动挖矿
+        gameData.minersGuild.autoMining.enabled = true;
+        
+        // 设置为20秒一次
+        gameData.minersGuild.autoMining.interval = 20;
+        
+        // 初始化lastMiningTime为当前时间，不立即执行，而是20秒后执行
+        gameData.minersGuild.autoMining.lastMiningTime = Date.now();
+        
+        // 启动自动挖矿定时器
+        startAutoMining();
+        
+        addMessage('所有已派遣的矿工开始挖矿，每20秒自动执行一次！');
+    } else {
+        // 停止自动挖矿
+        stopAutoMining();
+    }
+    
+    saveGame();
+    
+    // 更新按钮文字
+    const toggleBtn = document.getElementById('mining-toggle-btn');
+    if (toggleBtn) {
+        toggleBtn.textContent = gameData.minersGuild.autoMining.enabled ? '全部停止' : '开始挖矿';
+    }
+    
+    // 更新矿工列表显示
+    const minersList = document.getElementById('miners-list');
+    if (minersList) {
+        minersList.innerHTML = generateMinersList();
+    }
+}
+
+// 开始单个矿工工作
+function startMinerWork(index) {
+    const miner = gameData.minersGuild.miners[index];
+    if (!miner) return;
+    
+    // 如果矿工没有派遣矿物，提示用户
+    if (!miner.assignedMineral) {
+        addMessage(`${miner.name} 还没有派遣到矿场，请先派遣矿工！`);
+        return;
+    }
+    
+    miner.working = true;
+    addMessage(`${miner.name} 开始工作！`);
+    saveGame();
+    
+    // 如果自动挖矿未启用，启动自动挖矿
+    if (!gameData.minersGuild.autoMining.enabled) {
+        gameData.minersGuild.autoMining.enabled = true;
+        gameData.minersGuild.autoMining.interval = 20;
+        gameData.minersGuild.autoMining.lastMiningTime = Date.now();
+        startAutoMining();
+    }
+    
+    // 更新矿工列表显示
+    const minersList = document.getElementById('miners-list');
+    if (minersList) {
+        minersList.innerHTML = generateMinersList();
+    }
+}
+
+// 停止单个矿工工作
+function stopMinerWork(index) {
+    const miner = gameData.minersGuild.miners[index];
+    if (!miner) return;
+    
+    miner.working = false;
+    addMessage(`${miner.name} 已停止工作！`);
+    saveGame();
+    
+    // 检查是否还有工作中的矿工
+    const workingMiners = gameData.minersGuild.miners.filter(miner => miner.working);
+    if (workingMiners.length === 0) {
+        // 没有工作中的矿工，停止自动挖矿
+        stopAutoMining();
+    }
+    
+    // 更新矿工列表显示
+    const minersList = document.getElementById('miners-list');
+    if (minersList) {
+        minersList.innerHTML = generateMinersList();
+    }
 }
 
 // 停止自动挖矿
@@ -927,76 +1127,128 @@ function stopAutoMining() {
         autoMiningInterval = null;
     }
     gameData.minersGuild.autoMining.enabled = false;
+    
+    // 停止所有矿工的工作状态
+    gameData.minersGuild.miners.forEach(miner => {
+        miner.working = false;
+    });
+    
     addMessage('自动挖矿已停止！');
     saveGame();
+    
+    // 更新矿工列表显示
+    const minersList = document.getElementById('miners-list');
+    if (minersList) {
+        minersList.innerHTML = generateMinersList();
+    }
 }
 
 // 执行自动挖矿
 function performAutoMining() {
-    const mineralName = gameData.minersGuild.autoMining.selectedMineral;
-    if (!mineralName) {
+    // 获取所有正在工作的矿工
+    const workingMiners = gameData.minersGuild.miners.filter(miner => miner.working && miner.assignedMineral);
+    
+    if (workingMiners.length === 0) {
         return;
     }
     
-    const mineral = minerals.find(m => m.name === mineralName);
-    if (!mineral) {
-        return;
-    }
-    
-    // 检查玩家等级是否足够
-    if (gameData.player.level < mineral.minLevel) {
-        return;
-    }
-    
-    // 计算挖矿奖励
-    const rewards = calculateMiningRewards(mineral);
-    
-    // 应用矿工佣金
-    applyMinerCommission(rewards);
-    
-    // 添加奖励到玩家背包
-    for (const [item, amount] of Object.entries(rewards.items)) {
-        addToBackpack(item, amount);
-    }
-    
-    // 添加经验
-    gameData.player.exp += rewards.exp;
-    
-    // 更新挖矿计数
-    if (!gameData.miningCount[mineralName]) {
-        gameData.miningCount[mineralName] = 0;
-    }
-    gameData.miningCount[mineralName]++;
-    
-    // 检查升级
-    checkLevelUp();
-    
-    // 更新UI
-    updateUI();
-    updateBackpackDisplay();
-    
-    // 添加消息
-    addMessage(`自动挖矿获得了${rewards.items[mineralName] || 0}个${mineralName}！`);
+    // 遍历所有工作中的矿工
+    workingMiners.forEach(miner => {
+        const mineralName = miner.assignedMineral;
+        const mineral = minerals.find(m => m.name === mineralName);
+        
+        if (!mineral) {
+            return;
+        }
+        
+        // 检查玩家等级是否足够
+        if (gameData.player.level < mineral.minLevel) {
+            return;
+        }
+        
+        // 计算挖矿奖励
+        const rewards = calculateMiningRewards(mineral, miner);
+        
+        // 应用矿工佣金
+        applyMinerCommission(rewards);
+        
+        // 将奖励存入协会仓库
+        for (const [item, amount] of Object.entries(rewards.items)) {
+            if (!gameData.minersGuild.storage[item]) {
+                gameData.minersGuild.storage[item] = 0;
+            }
+            gameData.minersGuild.storage[item] += amount;
+        }
+        
+        // 添加经验
+        gameData.player.exp += rewards.exp;
+        
+        // 更新挖矿计数
+        if (!gameData.miningCount[mineralName]) {
+            gameData.miningCount[mineralName] = 0;
+        }
+        gameData.miningCount[mineralName]++;
+        
+        // 检查升级
+        checkLevelUp();
+        
+        // 更新UI
+        updateUI();
+        updateBackpackDisplay();
+        
+        // 添加消息，显示是哪个矿工进行了挖矿
+        addMessage(`${miner.name} 开采获得了${rewards.items[mineralName] || 0}个${mineralName}！`);
+        
+        // 更新仓库界面（如果仓库界面已打开）
+        const storageItemsDiv = document.getElementById('storage-items');
+        if (storageItemsDiv) {
+            updateStorageUI();
+        }
+    });
 }
 
 // 计算挖矿奖励
-function calculateMiningRewards(mineral) {
+function calculateMiningRewards(mineral, miner) {
     const rewards = {
         items: {},
         exp: mineral.exp
     };
     
+    // 计算基础效率
+    const minerEfficiency = calculateMinerEfficiency(miner);
+    
+    // 按照新公式计算收获数量：数量 = (20秒 / 矿物开采基础时间 + 矿工等级) * 矿工效率，向上取整
+    const baseTime = mineral.baseTime;
+    const minerLevel = miner.level;
+    let amount = Math.ceil((20 / baseTime + minerLevel) * minerEfficiency);
+    
+    // 应用双倍掉落能力
+    if (miner.abilities.includes('doubleDrop')) {
+        amount = Math.floor(amount * 2);
+    }
+    
     // 添加矿物本身
-    rewards.items[mineral.name] = 1;
+    rewards.items[mineral.name] = amount;
     
     // 处理副产物
     if (mineral.drops) {
         mineral.drops.forEach(drop => {
-            if (Math.random() < drop.chance) {
+            // 应用双倍掉落能力到副产物
+            let dropChance = drop.chance;
+            if (miner.abilities.includes('doubleDrop')) {
+                dropChance = Math.min(1.0, dropChance * 2);
+            }
+            
+            if (Math.random() < dropChance) {
                 if (!rewards.items[drop.name]) {
                     rewards.items[drop.name] = 0;
                 }
                 rewards.items[drop.name]++;
+                
+                // 双倍掉落能力可能让副产物也掉落多个
+                if (miner.abilities.includes('doubleDrop') && Math.random() < 0.5) {
+                    rewards.items[drop.name]++;
+                }
             }
         });
     }
@@ -1008,11 +1260,16 @@ function calculateMiningRewards(mineral) {
 function applyMinerCommission(rewards) {
     const commissionRate = gameData.minersGuild.commissionRate;
     
+    // 如果佣金率为0，直接返回
+    if (commissionRate === 0) {
+        return;
+    }
+    
     // 计算佣金
     for (const [item, amount] of Object.entries(rewards.items)) {
         const commission = Math.floor(amount * commissionRate);
         if (commission > 0) {
-            rewards.items[item] -= commission;
+            rewards.items[item] = Math.max(1, amount - commission); // 确保至少剩余1个矿物
             // 这里可以添加佣金到矿工协会的逻辑
         }
     }
@@ -1034,15 +1291,21 @@ function toggleMinersGuild() {
         gameData.minersGuild = {
             unlocked: true,
             miners: [],
+            storage: {},
             autoMining: {
                 enabled: false,
                 selectedMineral: null,
                 interval: 60,
                 lastMiningTime: 0
             },
-            commissionRate: 0.1,
+            commissionRate: 0,
             maxMiners: 5
         };
+    }
+    
+    // 确保storage字段存在
+    if (!gameData.minersGuild.storage) {
+        gameData.minersGuild.storage = {};
     }
     
     // 解锁矿工协会
@@ -1059,13 +1322,63 @@ function toggleMinersGuild() {
             </div>
             <div class="miners-guild-content">
                 <div class="miners-section">
-                    <h4>矿工管理</h4>
+                    <h4 style="display: flex; justify-content: space-between; align-items: center;">
+                        矿工管理
+                        <button onclick="hireMiner()" ${gameData.minersGuild.miners.length >= gameData.minersGuild.maxMiners ? 'disabled' : ''} style="margin-left: 10px; padding: 5px 10px; background-color: #2196F3; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 0.8em;">
+                            雇佣矿工
+                        </button>
+                    </h4>
                     <div class="miners-list" id="miners-list">
                         ${generateMinersList()}
                     </div>
-                    <button onclick="hireMiner()" ${gameData.minersGuild.miners.length >= gameData.minersGuild.maxMiners ? 'disabled' : ''} style="margin-top: 10px; padding: 8px 16px; background-color: #2196F3; color: white; border: none; border-radius: 3px; cursor: pointer;">
-                        雇佣矿工
-                    </button>
+                </div>
+                <div class="auto-mining-section">
+                    <h4>自动挖矿设置</h4>
+                    <div class="auto-mining-settings">
+                        <div class="setting-item">
+                            <label>选择矿工：</label>
+                            <select id="auto-mining-miner">
+                                ${generateMinersOptions()}
+                            </select>
+                            <span style="margin-left: 10px; font-size: 0.8em; color: #666;">${gameData.minersGuild.miners.length === 0 ? '请先雇佣至少一个矿工为你服务' : ''}</span>
+                        </div>
+                        <div class="setting-item">
+                            <label>选择矿物：</label>
+                            <select id="auto-mining-mineral">
+                                ${generateMineralOptions()}
+                            </select>
+                        </div>
+                        <button onclick="saveAutoMiningSettings()" style="margin-top: 15px; margin-right: 10px; padding: 8px 16px; background-color: #4CAF50; color: white; border: none; border-radius: 3px; cursor: pointer;">
+                            确认派遣
+                        </button>
+                        <button id="mining-toggle-btn" onclick="toggleMining()" style="margin-top: 15px; padding: 8px 16px; background-color: #FF9800; color: white; border: none; border-radius: 3px; cursor: pointer;">
+                            ${gameData.minersGuild.autoMining.enabled ? '全部停止' : '开始挖矿'}
+                        </button>
+                    </div>
+                </div>
+                <div class="guild-storage-section">
+                    <h4>协会仓库</h4>
+                    <div class="storage-info">
+                        <h5>仓库物品</h5>
+                        <div class="storage-items" id="storage-items">
+                            <!-- 仓库物品将动态生成 -->
+                        </div>
+                    </div>
+                    <div class="storage-actions" style="margin-top: 20px;">
+                        <div class="action-item" style="margin-bottom: 15px;">
+                            <label for="storage-item-select" style="display: block; margin-bottom: 5px; font-weight: 500;">选择物品：</label>
+                            <select id="storage-item-select" style="width: 100%; padding: 8px; border: 2px solid #ddd; border-radius: 6px; font-size: 1em;">
+                                <!-- 物品选项将动态生成 -->
+                            </select>
+                        </div>
+                        <div class="action-item" style="margin-bottom: 15px;">
+                            <label for="storage-amount-input" style="display: block; margin-bottom: 5px; font-weight: 500;">取出数量：</label>
+                            <input type="number" id="storage-amount-input" min="1" value="1" style="width: 100%; padding: 8px; border: 2px solid #ddd; border-radius: 6px; font-size: 1em;">
+                        </div>
+                        <button onclick="takeFromStorage()" style="width: 100%; padding: 10px; background: linear-gradient(45deg, #27ae60 0%, #229954 100%); color: white; border: none; border-radius: 8px; font-size: 1em; font-weight: 600; cursor: pointer; transition: all 0.3s ease;">
+                            取出物品
+                        </button>
+                    </div>
                 </div>
                 <div class="badge-upgrade-section">
                     <h4>徽章升级</h4>
@@ -1102,28 +1415,6 @@ function toggleMinersGuild() {
                         <div class="max-level">徽章已达到最高等级！</div>
                     `}
                 </div>
-                <div class="auto-mining-section">
-                    <h4>自动挖矿设置</h4>
-                    <div class="auto-mining-settings">
-                        <div class="setting-item">
-                            <label>启用自动挖矿：</label>
-                            <input type="checkbox" id="auto-mining-enabled" ${gameData.minersGuild.autoMining.enabled ? 'checked' : ''}>
-                        </div>
-                        <div class="setting-item">
-                            <label>选择矿物：</label>
-                            <select id="auto-mining-mineral">
-                                ${generateMineralOptions()}
-                            </select>
-                        </div>
-                        <div class="setting-item">
-                            <label>挖矿间隔（秒）：</label>
-                            <input type="number" id="auto-mining-interval" min="10" max="300" value="${gameData.minersGuild.autoMining.interval}">
-                        </div>
-                        <button onclick="saveAutoMiningSettings()" style="margin-top: 15px; padding: 8px 16px; background-color: #4CAF50; color: white; border: none; border-radius: 3px; cursor: pointer;">
-                            保存设置
-                        </button>
-                    </div>
-                </div>
             </div>
         </div>
     `;
@@ -1132,8 +1423,11 @@ function toggleMinersGuild() {
     
     // 添加样式
     const style = document.createElement('style');
-    style.textContent = '@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } } @keyframes slideIn { from { transform: translateY(-20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } } @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.02); } 100% { transform: scale(1); } } .miners-guild-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.7); display: flex; justify-content: center; align-items: center; z-index: 1000; animation: fadeIn 0.3s ease-in-out; } .miners-guild-panel { background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); border-radius: 12px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3); width: 90%; max-width: 600px; max-height: 80vh; overflow-y: auto; animation: slideIn 0.3s ease-out; } .miners-guild-header { display: flex; justify-content: space-between; align-items: center; padding: 20px; background: linear-gradient(90deg, #2c3e50 0%, #34495e 100%); color: white; border-radius: 12px 12px 0 0; } .miners-guild-header h3 { margin: 0; font-size: 1.5em; font-weight: 600; } .miners-guild-header button { padding: 8px 16px; background: linear-gradient(45deg, #e74c3c 0%, #c0392b 100%); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 500; transition: all 0.3s ease; } .miners-guild-header button:hover { background: linear-gradient(45deg, #c0392b 0%, #a93226 100%); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(231, 76, 60, 0.4); } .miners-guild-content { padding: 25px; } .miners-section, .auto-mining-section, .badge-upgrade-section { background: white; border-radius: 10px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1); transition: all 0.3s ease; } .miners-section:hover, .auto-mining-section:hover, .badge-upgrade-section:hover { box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15); transform: translateY(-2px); } .badge-info { margin-bottom: 15px; } .badge-level, .badge-efficiency { margin-bottom: 5px; font-size: 0.95em; } .upgrade-materials { margin-bottom: 15px; } .material-item { margin-bottom: 8px; display: flex; justify-content: space-between; } .material-amount.enough { color: #4CAF50; font-weight: bold; } .material-amount.not-enough { color: #f44336; } .max-level { color: #FF9800; font-weight: bold; margin-top: 10px; } .miners-section h4, .auto-mining-section h4 { margin: 0 0 15px 0; color: #2c3e50; font-size: 1.2em; font-weight: 600; border-bottom: 2px solid #3498db; padding-bottom: 8px; } .miners-list { margin-bottom: 15px; } .miner-item { display: flex; justify-content: space-between; align-items: center; background: #f8f9fa; border-radius: 8px; padding: 12px; margin-bottom: 10px; border-left: 4px solid #3498db; transition: all 0.3s ease; } .miner-item:hover { background: #e3f2fd; transform: translateX(5px); } .miner-info { flex: 1; } .miner-name { font-weight: 600; color: #2c3e50; margin-bottom: 4px; } .miner-status { font-size: 0.9em; color: #7f8c8d; } .miner-actions button { padding: 6px 14px; background: linear-gradient(45deg, #e74c3c 0%, #c0392b 100%); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 0.85em; font-weight: 500; transition: all 0.3s ease; } .miner-actions button:hover { background: linear-gradient(45deg, #c0392b 0%, #a93226 100%); transform: translateY(-1px); box-shadow: 0 2px 8px rgba(231, 76, 60, 0.4); } .no-miners { text-align: center; padding: 30px; color: #7f8c8d; font-style: italic; background: #f8f9fa; border-radius: 8px; border: 2px dashed #dee2e6; } .auto-mining-settings { display: flex; flex-direction: column; gap: 15px; } .setting-item { display: flex; align-items: center; gap: 10px; } .setting-item label { flex: 0 0 120px; font-weight: 500; color: #2c3e50; } .setting-item input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; } .setting-item select, .setting-item input[type="number"] { flex: 1; padding: 8px 12px; border: 2px solid #ddd; border-radius: 6px; font-size: 1em; transition: all 0.3s ease; } .setting-item select:focus, .setting-item input[type="number"]:focus { outline: none; border-color: #3498db; box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1); } .miners-section button, .auto-mining-section button { padding: 10px 20px; border: none; border-radius: 8px; font-size: 1em; font-weight: 600; cursor: pointer; transition: all 0.3s ease; margin-top: 10px; } .miners-section button { background: linear-gradient(45deg, #3498db 0%, #2980b9 100%); color: white; } .miners-section button:hover:not(:disabled) { background: linear-gradient(45deg, #2980b9 0%, #1f618d 100%); transform: translateY(-2px); box-shadow: 0 4px 12px rgba(52, 152, 219, 0.4); } .miners-section button:disabled { background: #bdc3c7; cursor: not-allowed; opacity: 0.7; } .auto-mining-section button { background: linear-gradient(45deg, #27ae60 0%, #229954 100%); color: white; align-self: flex-start; } .auto-mining-section button:hover { background: linear-gradient(45deg, #229954 0%, #1e8449 100%); transform: translateY(-2px); box-shadow: 0 4px 12px rgba(39, 174, 96, 0.4); animation: pulse 0.6s ease-in-out; }';
+    style.textContent = '@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } } @keyframes slideIn { from { transform: translateY(-20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } } @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.02); } 100% { transform: scale(1); } } .miners-guild-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.7); display: flex; justify-content: center; align-items: center; z-index: 1000; animation: fadeIn 0.3s ease-in-out; } .miners-guild-panel { background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); border-radius: 12px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3); width: 90%; max-width: 600px; max-height: 80vh; overflow-y: auto; animation: slideIn 0.3s ease-out; } .miners-guild-header { display: flex; justify-content: space-between; align-items: center; padding: 20px; background: linear-gradient(90deg, #2c3e50 0%, #34495e 100%); color: white; border-radius: 12px 12px 0 0; } .miners-guild-header h3 { margin: 0; font-size: 1.5em; font-weight: 600; } .miners-guild-header button { padding: 8px 16px; background: linear-gradient(45deg, #e74c3c 0%, #c0392b 100%); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 500; transition: all 0.3s ease; } .miners-guild-header button:hover { background: linear-gradient(45deg, #c0392b 0%, #a93226 100%); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(231, 76, 60, 0.4); } .miners-guild-content { padding: 25px; } .miners-section, .auto-mining-section, .guild-storage-section, .badge-upgrade-section { background: white; border-radius: 10px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1); transition: all 0.3s ease; } .miners-section:hover, .auto-mining-section:hover, .guild-storage-section:hover, .badge-upgrade-section:hover { box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15); transform: translateY(-2px); } .badge-info { margin-bottom: 15px; } .badge-level, .badge-efficiency { margin-bottom: 5px; font-size: 0.95em; } .upgrade-materials { margin-bottom: 15px; } .material-item { margin-bottom: 8px; display: flex; justify-content: space-between; } .material-amount.enough { color: #4CAF50; font-weight: bold; } .material-amount.not-enough { color: #f44336; } .max-level { color: #FF9800; font-weight: bold; margin-top: 10px; } .miners-section h4, .auto-mining-section h4, .guild-storage-section h4, .badge-upgrade-section h4 { margin: 0 0 15px 0; color: #2c3e50; font-size: 1.2em; font-weight: 600; border-bottom: 2px solid #3498db; padding-bottom: 8px; } .miners-list { margin-bottom: 15px; } .miner-item { display: flex; justify-content: space-between; align-items: center; background: #f8f9fa; border-radius: 8px; padding: 12px; margin-bottom: 10px; border-left: 4px solid #3498db; transition: all 0.3s ease; } .miner-item:hover { background: #e3f2fd; transform: translateX(5px); } .miner-info { flex: 1; } .miner-name { font-weight: 600; color: #2c3e50; margin-bottom: 4px; } .miner-status { font-size: 0.9em; color: #7f8c8d; } .miner-actions button { padding: 6px 14px; background: linear-gradient(45deg, #e74c3c 0%, #c0392b 100%); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 0.85em; font-weight: 500; transition: all 0.3s ease; } .miner-actions button:hover { background: linear-gradient(45deg, #c0392b 0%, #a93226 100%); transform: translateY(-1px); box-shadow: 0 2px 8px rgba(231, 76, 60, 0.4); } .no-miners { text-align: center; padding: 30px; color: #7f8c8d; font-style: italic; background: #f8f9fa; border-radius: 8px; border: 2px dashed #dee2e6; } .auto-mining-settings { display: flex; flex-direction: column; gap: 15px; } .setting-item { display: flex; align-items: center; gap: 10px; } .setting-item label { flex: 0 0 120px; font-weight: 500; color: #2c3e50; } .setting-item input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; } .setting-item select, .setting-item input[type="number"] { flex: 1; padding: 8px 12px; border: 2px solid #ddd; border-radius: 6px; font-size: 1em; transition: all 0.3s ease; } .setting-item select:focus, .setting-item input[type="number"]:focus { outline: none; border-color: #3498db; box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1); } .miners-section button, .auto-mining-section button { padding: 10px 20px; border: none; border-radius: 8px; font-size: 1em; font-weight: 600; cursor: pointer; transition: all 0.3s ease; margin-top: 10px; } .miners-section button { background: linear-gradient(45deg, #3498db 0%, #2980b9 100%); color: white; } .miners-section button:hover:not(:disabled) { background: linear-gradient(45deg, #2980b9 0%, #1f618d 100%); transform: translateY(-2px); box-shadow: 0 4px 12px rgba(52, 152, 219, 0.4); } .miners-section button:disabled { background: #bdc3c7; cursor: not-allowed; opacity: 0.7; } .auto-mining-section button { background: linear-gradient(45deg, #27ae60 0%, #229954 100%); color: white; align-self: flex-start; } .auto-mining-section button:hover { background: linear-gradient(45deg, #229954 0%, #1e8449 100%); transform: translateY(-2px); box-shadow: 0 4px 12px rgba(39, 174, 96, 0.4); animation: pulse 0.6s ease-in-out; } .storage-items { background: #f8f9fa; border-radius: 8px; padding: 15px; } .storage-totals-list { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; } .storage-total-item { font-size: 0.9em; color: #666; font-weight: normal; } .storage-item { display: flex; justify-content: space-between; align-items: center; background: white; border-radius: 6px; padding: 10px; margin-bottom: 8px; border-left: 4px solid #3498db; } .storage-item-name { font-size: 0.9em; color: #666; font-weight: normal; } .storage-item-amount { font-size: 0.9em; color: #666; font-weight: normal; } .no-storage-items { text-align: center; color: #7f8c8d; font-style: italic; padding: 20px; }';
     document.head.appendChild(style);
+    
+    // 初始化仓库界面
+    updateStorageUI();
     
     // 添加点击外部关闭功能
     panel.addEventListener('click', (e) => {
@@ -1141,6 +1435,164 @@ function toggleMinersGuild() {
             panel.remove();
         }
     });
+}
+
+// 更新仓库界面
+function updateStorageUI() {
+    // 更新仓库物品显示
+    updateStorageItems();
+    
+    // 更新物品选择下拉菜单
+    updateStorageItemSelect();
+    
+    // 更新数量输入框的最大值
+    updateStorageAmountInput();
+}
+
+// 更新仓库物品显示
+function updateStorageItems() {
+    const storageItemsDiv = document.getElementById('storage-items');
+    if (!storageItemsDiv) return;
+    
+    const storage = gameData.minersGuild.storage;
+    const items = Object.entries(storage).filter(([_, amount]) => amount > 0);
+    
+    if (items.length === 0) {
+        storageItemsDiv.innerHTML = '<div class="no-storage-items">仓库中没有物品</div>';
+        return;
+    }
+    
+    let html = '<div class="storage-totals-list">';
+    items.forEach(([itemName, amount]) => {
+        html += `
+            <div class="storage-total-item">${itemName}: ${amount}</div>
+        `;
+    });
+    html += '</div>';
+    
+    storageItemsDiv.innerHTML = html;
+}
+
+// 更新物品选择下拉菜单
+function updateStorageItemSelect() {
+    const select = document.getElementById('storage-item-select');
+    if (!select) return;
+    
+    const storage = gameData.minersGuild.storage;
+    const items = Object.entries(storage).filter(([_, amount]) => amount > 0);
+    
+    // 清空现有选项
+    select.innerHTML = '<option value="">请选择物品</option>';
+    
+    // 添加物品选项
+    items.forEach(([itemName, amount]) => {
+        const option = document.createElement('option');
+        option.value = itemName;
+        option.textContent = `${itemName} (${amount}个)`;
+        select.appendChild(option);
+    });
+    
+    // 添加事件监听，当选择变化时更新数量输入框
+    select.addEventListener('change', updateStorageAmountInput);
+}
+
+// 更新数量输入框
+function updateStorageAmountInput() {
+    const select = document.getElementById('storage-item-select');
+    const input = document.getElementById('storage-amount-input');
+    if (!select || !input) return;
+    
+    const selectedItem = select.value;
+    if (!selectedItem) {
+        input.value = '1';
+        input.disabled = true;
+        return;
+    }
+    
+    const amountInStorage = gameData.minersGuild.storage[selectedItem] || 0;
+    input.disabled = false;
+    input.min = '1';
+    input.max = amountInStorage;
+    input.value = amountInStorage;
+}
+
+// 从仓库取出物品
+function takeFromStorage() {
+    const select = document.getElementById('storage-item-select');
+    const input = document.getElementById('storage-amount-input');
+    if (!select || !input) return;
+    
+    const selectedItem = select.value;
+    if (!selectedItem) {
+        addMessage('请选择要取出的物品！');
+        return;
+    }
+    
+    const amount = parseInt(input.value);
+    if (isNaN(amount) || amount < 1) {
+        addMessage('请输入有效的取出数量！');
+        return;
+    }
+    
+    // 检查仓库中是否有足够的物品
+    if ((gameData.minersGuild.storage[selectedItem] || 0) < amount) {
+        addMessage('仓库中没有足够的物品！');
+        return;
+    }
+    
+    // 检查背包是否能放下
+    const canAdd = canAddToBackpack(selectedItem, amount);
+    if (!canAdd) {
+        addMessage('背包空间不足，无法取出物品！');
+        return;
+    }
+    
+    // 从仓库取出物品
+    gameData.minersGuild.storage[selectedItem] -= amount;
+    if (gameData.minersGuild.storage[selectedItem] <= 0) {
+        delete gameData.minersGuild.storage[selectedItem];
+    }
+    
+    // 将物品添加到背包
+    for (let i = 0; i < amount; i++) {
+        addToBackpack(selectedItem);
+    }
+    
+    addMessage(`成功从仓库取出${amount}个${selectedItem}到背包！`);
+    
+    // 更新仓库界面
+    updateStorageUI();
+    
+    // 保存游戏
+    saveGame();
+}
+
+// 检查背包是否能放下指定数量的物品
+function canAddToBackpack(itemName, amount) {
+    calculateBackpackStats();
+    const currentStackSize = gameData.backpack.currentStackSize;
+    const items = gameData.backpack.items;
+    const capacity = gameData.backpack.capacity;
+    
+    let remainingAmount = amount;
+    
+    // 检查现有堆叠
+    for (const [name, count] of Object.entries(items)) {
+        const baseName = name.split('_')[0];
+        if (baseName === itemName && count < currentStackSize) {
+            const canAddToStack = currentStackSize - count;
+            remainingAmount -= canAddToStack;
+            if (remainingAmount <= 0) {
+                return true;
+            }
+        }
+    }
+    
+    // 检查剩余槽位
+    const emptySlots = capacity - Object.keys(items).length;
+    const stacksNeeded = Math.ceil(remainingAmount / currentStackSize);
+    
+    return stacksNeeded <= emptySlots;
 }
 
 // 生成矿工列表
@@ -1151,13 +1603,33 @@ function generateMinersList() {
     
     let html = '';
     gameData.minersGuild.miners.forEach((miner, index) => {
+        // 确定矿工状态显示
+        let statusText = '';
+        if (miner.assignedMineral) {
+            statusText = miner.working ? `工作中 (${miner.assignedMineral}矿)` : `已派遣到${miner.assignedMineral}矿`;
+        } else {
+            statusText = '空闲';
+        }
+        
+        // 确定按钮文字和事件
+        const workBtnText = miner.working ? '停止工作' : '开始工作';
+        const workBtnOnclick = miner.working ? `stopMinerWork(${index})` : `startMinerWork(${index})`;
+        
         html += `
             <div class="miner-item">
                 <div class="miner-info">
-                    <div class="miner-name">矿工 ${index + 1}</div>
-                    <div class="miner-status">状态：${miner.working ? '工作中' : '空闲'}</div>
+                    <div class="miner-name">${miner.name}</div>
+                    <div class="miner-status">状态：${statusText}</div>
+                    <div class="miner-efficiency">效率：${(miner.efficiency * 100).toFixed(0)}%</div>
+                    <div class="miner-intimacy">亲密度：${miner.intimacy || 0}</div>
                 </div>
                 <div class="miner-actions">
+                    <button onclick="showMinerDetails(${index})" style="margin-bottom: 8px; background-color: #2196F3; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 0.85em; font-weight: 500; transition: all 0.3s ease; padding: 6px 14px;"><!--
+                        -->详细信息<!--
+                    --></button>
+                    <button onclick="${workBtnOnclick}" style="margin-bottom: 8px; margin-right: 8px;"><!--
+                        -->${workBtnText}<!--
+                    --></button>
                     <button onclick="fireMiner(${index})"><!--
                         -->解雇<!--
                     --></button>
@@ -1167,6 +1639,175 @@ function generateMinersList() {
     });
     
     return html;
+}
+
+// 显示矿工详细信息
+function showMinerDetails(index) {
+    const miner = gameData.minersGuild.miners[index];
+    if (!miner) return;
+    
+    // 计算升级成本
+    const upgradeCost = 500 * Math.pow(2, miner.level - 1);
+    
+    // 创建详细信息面板
+    const panel = document.createElement('div');
+    panel.className = 'miner-details-overlay';
+    panel.innerHTML = `
+        <div class="miner-details-panel">
+            <div class="miner-details-header">
+                <h3>${miner.name} - 详细信息</h3>
+                <button onclick="this.closest('.miner-details-overlay').remove()" class="close-btn">×</button>
+            </div>
+            <div class="miner-details-content">
+                <div class="detail-item">
+                    <span class="detail-label">等级：</span>
+                    <span class="detail-value">lv${miner.level}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">经验：</span>
+                    <span class="detail-value">${miner.exp}/${miner.nextExp}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">亲密度：</span>
+                    <span class="detail-value">${miner.intimacy || 0}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">效率：</span>
+                    <span class="detail-value">${(miner.efficiency * 100).toFixed(0)}%</span>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">状态：</span>
+                    <span class="detail-value">${miner.assignedMineral ? (miner.working ? `工作中 (${miner.assignedMineral}矿)` : `已派遣到${miner.assignedMineral}矿`) : '空闲'}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">升级成本：</span>
+                    <span class="detail-value">${upgradeCost}金币</span>
+                </div>
+                ${miner.abilities.length > 0 ? `
+                    <div class="detail-item">
+                        <span class="detail-label">技能：</span>
+                        <span class="detail-value">${miner.abilities.join(', ')}</span>
+                    </div>
+                ` : ''}
+            </div>
+            <div class="miner-details-footer">
+                <button onclick="upgradeMiner(${index}); this.closest('.miner-details-overlay').remove()" class="upgrade-btn">升级矿工</button>
+                <button onclick="this.closest('.miner-details-overlay').remove()" class="close-btn">关闭</button>
+            </div>
+        </div>
+    `;
+    
+    // 添加样式
+    const style = document.createElement('style');
+    style.textContent = `
+        .miner-details-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1001;
+            animation: fadeIn 0.3s ease-in-out;
+        }
+        
+        .miner-details-panel {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            width: 90%;
+            max-width: 400px;
+            animation: slideIn 0.3s ease-out;
+        }
+        
+        .miner-details-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px;
+            background: linear-gradient(90deg, #2c3e50 0%, #34495e 100%);
+            color: white;
+            border-radius: 12px 12px 0 0;
+        }
+        
+        .miner-details-header h3 {
+            margin: 0;
+            font-size: 1.5em;
+            font-weight: 600;
+        }
+        
+        .close-btn {
+            padding: 8px 16px;
+            background: linear-gradient(45deg, #e74c3c 0%, #c0392b 100%);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            font-size: 1.2em;
+        }
+        
+        .close-btn:hover {
+            background: linear-gradient(45deg, #c0392b 0%, #a93226 100%);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(231, 76, 60, 0.4);
+        }
+        
+        .miner-details-content {
+            padding: 25px;
+        }
+        
+        .detail-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        
+        .detail-label {
+            font-weight: 600;
+            color: #2c3e50;
+        }
+        
+        .detail-value {
+            color: #666;
+        }
+        
+        .miner-details-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 0 0 12px 12px;
+        }
+        
+        .upgrade-btn {
+            padding: 10px 20px;
+            background: linear-gradient(45deg, #FF9800 0%, #f57c00 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .upgrade-btn:hover {
+            background: linear-gradient(45deg, #f57c00 0%, #ef6c00 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(255, 152, 0, 0.4);
+        }
+    `;
+    
+    document.head.appendChild(style);
+    document.body.appendChild(panel);
 }
 
 // 生成矿物选项
@@ -1182,6 +1823,45 @@ function generateMineralOptions() {
         }
     });
     return html;
+}
+
+// 生成矿工选项
+function generateMinersOptions() {
+    if (gameData.minersGuild.miners.length === 0) {
+        return '<option value="">请先雇佣至少一个矿工</option>';
+    }
+    
+    let html = '<option value="">请选择矿工</option>';
+    gameData.minersGuild.miners.forEach((miner, index) => {
+        html += `
+            <option value="${index}" ${gameData.minersGuild.autoMining.selectedMiner === index ? 'selected' : ''}>
+                ${miner.name} (等级${miner.level})
+            </option>
+        `;
+    });
+    return html;
+}
+
+// 合并同类型矿物，将所有带后缀的矿物合并到基础矿物中
+function mergeSameTypeItems() {
+    const mergedItems = {};
+    
+    // 遍历所有物品，合并同类型矿物
+    for (const [itemName, count] of Object.entries(gameData.backpack.items)) {
+        const baseName = itemName.split('_')[0];
+        if (!mergedItems[baseName]) {
+            mergedItems[baseName] = 0;
+        }
+        mergedItems[baseName] += count;
+    }
+    
+    // 清空原物品列表
+    gameData.backpack.items = {};
+    
+    // 重新添加合并后的物品
+    for (const [baseName, totalCount] of Object.entries(mergedItems)) {
+        gameData.backpack.items[baseName] = totalCount;
+    }
 }
 
 // 雇佣矿工
@@ -1203,19 +1883,31 @@ function hireMiner() {
     // 扣除金币
     gameData.player.gold -= hireCost;
     
+    // 生成矿工名字
+    const minerName = generateMinerName();
+    
+    // 检查是否带有矿工称号，带有特殊称号的矿工基础属性提高30%
+    const hasMinerTitle = minerName.includes('矿工') || minerName.includes('挖矿者') || minerName.includes('掘金者') || minerName.includes('矿夫') || minerName.includes('矿师') || minerName.includes('老矿工');
+    const baseEfficiency = hasMinerTitle ? 1.3 : 1.0;
+    
     // 添加矿工
     gameData.minersGuild.miners.push({
         id: Date.now() + Math.random(),
-        name: `矿工 ${gameData.minersGuild.miners.length + 1}`,
+        name: minerName,
         level: 1,
         exp: 0,
         nextExp: 100,
+        intimacy: 0, // 亲密度
         working: false,
-        efficiency: 1.0,
+        assignedMineral: null,
+        efficiency: baseEfficiency,
         abilities: []
     });
     
-    addMessage(`成功雇佣了矿工 ${gameData.minersGuild.miners.length}，花费${hireCost}金币！`);
+    addMessage(`成功雇佣了${hasMinerTitle ? '特殊' : ''}矿工 ${minerName}，花费${hireCost}金币！`);
+    if (hasMinerTitle) {
+        addMessage(`🌟 ${minerName} 拥有特殊称号，基础效率提高30%！`);
+    }
     
     // 更新界面
     const minersList = document.getElementById('miners-list');
@@ -1243,6 +1935,21 @@ function upgradeMiner(index) {
     // 计算升级成本
     const upgradeCost = 500 * Math.pow(2, miner.level - 1);
     
+    // 检查经验值
+    if (miner.exp < miner.nextExp) {
+        addMessage(`矿工 ${miner.name} 经验值不足，无法升级！`);
+        return;
+    }
+    
+    // 计算所需亲密度（每级需求上升，达到200后不再限制）
+    const requiredIntimacy = Math.min(200, Math.floor(50 * Math.pow(1.2, miner.level - 1)));
+    
+    // 检查亲密度
+    if (miner.intimacy < requiredIntimacy) {
+        addMessage(`矿工 ${miner.name} 亲密度不足，需要${requiredIntimacy}点亲密度才能升级！`);
+        return;
+    }
+    
     if (gameData.player.gold < upgradeCost) {
         addMessage('金币不足，无法升级矿工！');
         return;
@@ -1262,7 +1969,7 @@ function upgradeMiner(index) {
     // 解锁能力
     unlockMinerAbility(miner);
     
-    addMessage(`成功升级矿工 ${index + 1} 到 ${miner.level} 级，花费${upgradeCost}金币！`);
+    addMessage(`成功升级矿工 ${miner.name} 到 ${miner.level} 级，花费${upgradeCost}金币！`);
     
     // 更新界面
     const minersList = document.getElementById('miners-list');
@@ -1340,35 +2047,42 @@ function fireMiner(index) {
 
 // 保存自动挖矿设置
 function saveAutoMiningSettings() {
-    const enabled = document.getElementById('auto-mining-enabled').checked;
+    const selectedMinerIndex = parseInt(document.getElementById('auto-mining-miner').value);
     const selectedMineral = document.getElementById('auto-mining-mineral').value;
-    const interval = parseInt(document.getElementById('auto-mining-interval').value);
-    
     // 验证设置
-    if (enabled && !selectedMineral) {
+    if (isNaN(selectedMinerIndex) || selectedMinerIndex < 0 || selectedMinerIndex >= gameData.minersGuild.miners.length) {
+        addMessage('请选择一个有效的矿工！');
+        return;
+    }
+    
+    if (!selectedMineral) {
         addMessage('请选择要自动挖掘的矿物！');
         return;
     }
     
-    if (interval < 10 || interval > 300) {
-        addMessage('挖矿间隔必须在10-300秒之间！');
+    // 检查矿工是否正在工作
+    const miner = gameData.minersGuild.miners[selectedMinerIndex];
+    if (miner.working) {
+        addMessage(`${miner.name} 正在工作中，无法重新派遣！`);
         return;
     }
     
-    // 保存设置
-    gameData.minersGuild.autoMining.enabled = enabled;
+    // 保存设置，使用默认的挖矿间隔
+    gameData.minersGuild.autoMining.selectedMiner = selectedMinerIndex;
     gameData.minersGuild.autoMining.selectedMineral = selectedMineral;
-    gameData.minersGuild.autoMining.interval = interval;
+    gameData.minersGuild.autoMining.interval = 60; // 默认60秒
     
-    // 根据设置启动或停止自动挖矿
-    if (enabled) {
-        startAutoMining();
-    } else {
-        stopAutoMining();
-    }
-    
-    addMessage('自动挖矿设置已保存！');
+    // 更新矿工派遣状态
+    miner.assignedMineral = selectedMineral;
+    miner.working = false; // 派遣后不直接开始工作
+    addMessage(`${miner.name} 已派遣到${selectedMineral}矿！`);
     saveGame();
+    
+    // 更新矿工列表显示
+    const minersList = document.getElementById('miners-list');
+    if (minersList) {
+        minersList.innerHTML = generateMinersList();
+    }
 }
 
 // 检查任务大厅解锁状态
@@ -2302,6 +3016,7 @@ function updateBackpackDisplay() {
     slots.forEach(slot => {
         slot.className = 'backpack-slot empty';
         slot.innerHTML = '';
+        slot.onclick = null;
     });
     items.forEach(([itemName, count], index) => {
         if (index < slots.length) {
@@ -2312,6 +3027,8 @@ function updateBackpackDisplay() {
                 <div class="item-name">${displayName}</div>
                 <div class="item-count">${count}/${gameData.backpack.currentStackSize}</div>
             `;
+            // 添加点击事件监听器
+            slot.onclick = () => handleItemClick(itemName, displayName);
         }
     });
     document.getElementById('backpack-capacity').textContent = items.length;
@@ -2319,6 +3036,156 @@ function updateBackpackDisplay() {
     const backpackTitle = document.querySelector('.backpack h2');
     backpackTitle.innerHTML = `背包 (容量: <span id="backpack-capacity">${items.length}</span>/<span id="backpack-max">${gameData.backpack.capacity}</span>) <span class="stack-size">(堆叠: ${gameData.backpack.currentStackSize})</span>`;
     showItemTotals();
+}
+
+// 处理背包物品点击
+function handleItemClick(itemName, displayName) {
+    // 如果是扎啤，显示使用界面
+    if (displayName === '扎啤') {
+        showUseBeerDialog(itemName);
+    }
+}
+
+// 显示使用扎啤的对话框
+function showUseBeerDialog(itemName) {
+    // 创建对话框
+    const panel = document.createElement('div');
+    panel.className = 'use-beer-overlay';
+    panel.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.7);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 1001;
+        animation: fadeIn 0.3s ease-in-out;
+    `;
+    
+    panel.innerHTML = `
+        <div class="use-beer-panel">
+            <div class="use-beer-header">
+                <h3>使用扎啤</h3>
+                <button onclick="this.closest('.use-beer-overlay').remove()" style="padding: 5px 10px; background-color: #f44336; color: white; border: none; border-radius: 3px; cursor: pointer;">关闭</button>
+            </div>
+            <div class="use-beer-content">
+                <p>选择要提升亲密度的矿工：</p>
+                <select id="miner-select">
+                    ${gameData.minersGuild.miners.map((miner, index) => 
+                        `<option value="${index}">${miner.name} (等级${miner.level}，亲密度${miner.intimacy})</option>`
+                    ).join('')}
+                </select>
+                <div class="use-beer-actions">
+                    <button onclick="useBeer('${itemName}', document.getElementById('miner-select').value); this.closest('.use-beer-overlay').remove()" class="use-btn">使用扎啤</button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // 添加样式
+    const style = document.createElement('style');
+    style.textContent = `
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .use-beer-panel {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            width: 90%;
+            max-width: 500px;
+            animation: slideIn 0.3s ease-out;
+        }
+        .use-beer-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px;
+            background: linear-gradient(90deg, #2c3e50 0%, #34495e 100%);
+            color: white;
+            border-radius: 12px 12px 0 0;
+        }
+        .use-beer-header h3 {
+            margin: 0;
+            font-size: 1.5em;
+            font-weight: 600;
+        }
+        .use-beer-content {
+            padding: 25px;
+        }
+        .use-beer-content p {
+            margin: 0 0 15px 0;
+            color: #2c3e50;
+            font-size: 1.1em;
+        }
+        #miner-select {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-size: 1em;
+            margin-bottom: 20px;
+            background: white;
+        }
+        .use-beer-actions {
+            display: flex;
+            justify-content: center;
+        }
+        .use-btn {
+            padding: 12px 30px;
+            background: linear-gradient(45deg, #27ae60 0%, #229954 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1.1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .use-btn:hover {
+            background: linear-gradient(45deg, #229954 0%, #1e8449 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(39, 174, 96, 0.4);
+        }
+    `;
+    document.head.appendChild(style);
+    
+    document.body.appendChild(panel);
+}
+
+// 使用扎啤提升矿工亲密度
+function useBeer(itemName, minerIndex) {
+    const miner = gameData.minersGuild.miners[minerIndex];
+    if (!miner) {
+        addMessage('矿工不存在！');
+        return;
+    }
+    
+    // 检查背包中是否有扎啤
+    if (!gameData.backpack.items[itemName] || gameData.backpack.items[itemName] <= 0) {
+        addMessage('背包中没有扎啤！');
+        return;
+    }
+    
+    // 消耗1个扎啤
+    consumeItem(itemName, 1);
+    
+    // 提升亲密度50点
+    miner.intimacy = (miner.intimacy || 0) + 50;
+    
+    addMessage(`成功使用扎啤，提升了${miner.name}的亲密度50点，当前亲密度：${miner.intimacy}！`);
+    
+    // 更新UI
+    updateBackpackDisplay();
+    
+    // 更新矿工列表显示
+    const minersList = document.getElementById('miners-list');
+    if (minersList) {
+        minersList.innerHTML = generateMinersList();
+    }
+    
+    saveGame();
 }
 
 function selectMineral(mineralName) {
@@ -3292,16 +4159,8 @@ function addToBackpack(itemName) {
     if (!added) {
         const itemCount = Object.keys(gameData.backpack.items).length;
         if (itemCount < gameData.backpack.capacity) {
-            // 背包还有空槽位，创建新堆叠
-            let suffix = 1;
-            let newItemName = itemName;
-            while (gameData.backpack.items[newItemName]) {
-                suffix++;
-                newItemName = `${itemName}_${suffix}`;
-            }
-            
-            // 添加新物品
-            gameData.backpack.items[newItemName] = 1;
+            // 背包还有空槽位，直接创建新物品（使用基础名称）
+            gameData.backpack.items[itemName] = (gameData.backpack.items[itemName] || 0) + 1;
             added = true;
         } else {
             // 背包满了，放入临时背包
@@ -3320,6 +4179,11 @@ function addToBackpack(itemName) {
     
     // 更新背包显示
     updateBackpackDisplay();
+    
+    // 如果获得的是铜矿，检查NPC购买铜矿事件
+    if (itemName === '铜矿') {
+        checkSpecialEvents();
+    }
 }
 
 // 获取工具升级需求
@@ -6286,12 +7150,42 @@ function ensureGameDataIntegrity() {
             }
         }
     }
+    // 确保矿工协会和矿工属性完整
+    if (!gameData.minersGuild) {
+        gameData.minersGuild = {
+            unlocked: false,
+            miners: [],
+            storage: {},
+            autoMining: {
+                enabled: false,
+                selectedMineral: null,
+                interval: 60,
+                lastMiningTime: 0
+            },
+            commissionRate: 0,
+            maxMiners: 5,
+            badgeSystem: {
+                currentLevel: 0,
+                maxLevel: 10,
+                upgradeMaterials: [],
+                efficiencyBonuses: [1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0]
+            }
+        };
+    }
     // 确保金手套属性存在
     if (!gameData.goldenGlove) {
         gameData.goldenGlove = {
             active: false,
             endTime: 0
         };
+    }
+    // 确保所有矿工都有intimacy属性
+    if (gameData.minersGuild && gameData.minersGuild.miners) {
+        gameData.minersGuild.miners.forEach(miner => {
+            if (miner.intimacy === undefined) {
+                miner.intimacy = 0;
+            }
+        });
     }
     // 确保熔炉燃料系统属性存在
     if (!gameData.furnace) {
@@ -7500,7 +8394,8 @@ function refreshShopItems(isManualRefresh = false, isFreeRefresh = false) {
         { name: '电池*1', price: 350, probability: 0.05 },
         { name: '燃料*1', price: 300, probability: 0.05 },
         { name: '木材*100', price: 1000, probability: 0.3 },
-        { name: '金手套', price: 10000, probability: 0.2, isSpecial: true, effect: 'expBoost' }
+        { name: '金手套', price: 10000, probability: 0.2, isSpecial: true, effect: 'expBoost' },
+        { name: '扎啤*1', price: 200, probability: 0.2, isSpecial: false, effect: 'intimacyBoost' }
     ];
     
     // 手动刷新（使用金币）时，添加旅行背包到物品池
@@ -9610,6 +10505,64 @@ function createAndShowPopup() {
         setTimeout(() => {
             generateMineralGrid();
             updateUI();
+            
+            // 如果有正在进行的连续采矿，恢复其UI显示
+            if (continuousMining && currentContinuousMineral) {
+                // 延迟一小段时间，确保DOM已经更新
+                setTimeout(() => {
+                    // 重新查找矿物元素和进度条
+                    const mineralEl = document.querySelector(`[data-name="${currentContinuousMineral}"]`);
+                    if (mineralEl) {
+                        const mineBtn = mineralEl.querySelector('.mine-btn');
+                        const continuousBtn = mineralEl.querySelector('.continuous-mine-btn');
+                        const progressContainer = mineralEl.querySelector('.progress-container');
+                        const progressFill = mineralEl.querySelector('.progress-fill');
+                        const countdown = mineralEl.querySelector('.countdown');
+                        
+                        if (mineBtn && continuousBtn && progressContainer && progressFill && countdown) {
+                            // 更新按钮状态
+                            mineBtn.disabled = true;
+                            continuousBtn.textContent = '停止连续开采';
+                            continuousBtn.disabled = false;
+                            
+                            // 显示进度容器
+                            progressContainer.style.display = 'block';
+                            
+                            // 重新计算加速效果
+                            const mineral = minerals.find(m => m.name === currentContinuousMineral);
+                            if (mineral) {
+                                // 检查是否有丢失矿锄效果
+                                const hasLostPickaxeEffect = gameData.activeEffects && gameData.activeEffects.lostPickaxe && gameData.activeEffects.lostPickaxe.active;
+                                const pickaxeLevel = gameData.tools.pickaxe ? gameData.tools.pickaxe.level : 0;
+                                let pickaxeBonus = 0;
+                                
+                                if (!hasLostPickaxeEffect) {
+                                    if (pickaxeLevel < 40) {
+                                        // 40级以前：每5级一个阶段，每个阶段增加9%的加速效果
+                                        const stage = Math.min(8, Math.floor(pickaxeLevel / 5) + 1);
+                                        pickaxeBonus = stage * 0.09;
+                                    } else {
+                                        // 40级以后：每级增加0.5%的加速效果
+                                        const baseBonus = 0.72; // 40级时的基础加速效果（8个阶段 × 9%）
+                                        const additionalBonus = (pickaxeLevel - 39) * 0.005;
+                                        pickaxeBonus = baseBonus + additionalBonus;
+                                    }
+                                    
+                                    // 最高加速效果限制在90%
+                                    pickaxeBonus = Math.min(0.9, pickaxeBonus);
+                                }
+                                const actualTime = mineral.baseTime * (1 - pickaxeBonus);
+                                
+                                // 更新进度条和倒计时
+                                const progress = Math.min(100, (continuousElapsedTime / (actualTime * 1000)) * 100);
+                                const remaining = Math.max(0, actualTime - (continuousElapsedTime / 1000));
+                                progressFill.style.width = `${progress}%`;
+                                countdown.textContent = `${remaining.toFixed(2)}s`;
+                            }
+                        }
+                    }
+                }, 100);
+            }
         }, 0);
     };
 }
