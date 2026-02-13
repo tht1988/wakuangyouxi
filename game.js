@@ -582,6 +582,9 @@ function triggerNPCCopperPurchaseEvent() {
         return;
     }
     
+    // 先合并所有铜矿类型，确保计算准确
+    mergeSameTypeItems();
+    
     const event = gameData.specialEvents.npcCopperPurchase;
     event.triggered = true;
     
@@ -1299,7 +1302,43 @@ function toggleMinersGuild() {
                 lastMiningTime: 0
             },
             commissionRate: 0,
-            maxMiners: 5
+            maxMiners: 5,
+            badgeSystem: {
+                currentLevel: 0,
+                maxLevel: 10,
+                upgradeMaterials: [
+                    { level: 1, materials: { '铜矿': 100, '金币': 5000 } },
+                    { level: 2, materials: { '铁矿': 150, '金币': 10000 } },
+                    { level: 3, materials: { '钴矿': 200, '金币': 20000 } },
+                    { level: 4, materials: { '镍矿': 250, '金币': 30000 } },
+                    { level: 5, materials: { '银矿': 300, '金币': 50000 } },
+                    { level: 6, materials: { '白金矿': 350, '金币': 80000 } },
+                    { level: 7, materials: { '金矿': 400, '金币': 120000 } },
+                    { level: 8, materials: { '水晶矿': 450, '金币': 180000 } },
+                    { level: 9, materials: { '水晶矿': 500, '金币': 250000 } },
+                    { level: 10, materials: { '水晶矿': 600, '金币': 350000 } }
+                ],
+                efficiencyBonuses: [1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0]
+            }
+        };
+    } else if (!gameData.minersGuild.badgeSystem) {
+        // 确保badgeSystem属性存在
+        gameData.minersGuild.badgeSystem = {
+            currentLevel: 0,
+            maxLevel: 10,
+            upgradeMaterials: [
+                { level: 1, materials: { '铜矿': 100, '金币': 5000 } },
+                { level: 2, materials: { '铁矿': 150, '金币': 10000 } },
+                { level: 3, materials: { '钴矿': 200, '金币': 20000 } },
+                { level: 4, materials: { '镍矿': 250, '金币': 30000 } },
+                { level: 5, materials: { '银矿': 300, '金币': 50000 } },
+                { level: 6, materials: { '白金矿': 350, '金币': 80000 } },
+                { level: 7, materials: { '金矿': 400, '金币': 120000 } },
+                { level: 8, materials: { '水晶矿': 450, '金币': 180000 } },
+                { level: 9, materials: { '水晶矿': 500, '金币': 250000 } },
+                { level: 10, materials: { '水晶矿': 600, '金币': 350000 } }
+            ],
+            efficiencyBonuses: [1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0]
         };
     }
     
@@ -7412,6 +7451,41 @@ function ensureGameDataIntegrity() {
     }
     if (gameData.workshop.maxBatteryEnergy === Infinity) {
         gameData.workshop.maxBatteryEnergy = 10000; // 200个电池 * 50点能量/电池
+    }
+    
+    // 确保特殊事件系统存在
+    if (!gameData.specialEvents) {
+        gameData.specialEvents = {
+            npcCopperPurchase: {
+                triggered: false,
+                completed: false,
+                requiredAmount: 9999,
+                declineCount: 0,
+                reward: {
+                    type: 'badge',
+                    name: '初级矿工徽章'
+                }
+            }
+        };
+    } else if (!gameData.specialEvents.npcCopperPurchase) {
+        gameData.specialEvents.npcCopperPurchase = {
+            triggered: false,
+            completed: false,
+            requiredAmount: 9999,
+            declineCount: 0,
+            reward: {
+                type: 'badge',
+                name: '初级矿工徽章'
+            }
+        };
+    }
+    
+    // 确保徽章系统存在
+    if (!gameData.badges) {
+        gameData.badges = {
+            hasMinersBadge: false,
+            badgeLevel: 0
+        };
     }
 }
 
