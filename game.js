@@ -1186,6 +1186,15 @@ function performAutoMining() {
         // 添加经验
         gameData.player.exp += rewards.exp;
         
+        // 为矿工添加经验（如果经验未满）
+        if (miner.exp < miner.nextExp) {
+            const minerExpGain = Math.floor(rewards.exp * 0.5); // 矿工获得玩家经验的50%
+            miner.exp += minerExpGain;
+            if (miner.exp >= miner.nextExp) {
+                addMessage(`${miner.name} 的经验已满，等待升级！`);
+            }
+        }
+        
         // 更新挖矿计数
         if (!gameData.miningCount[mineralName]) {
             gameData.miningCount[mineralName] = 0;
@@ -1660,7 +1669,6 @@ function generateMinersList() {
                     <div class="miner-name">${miner.name}</div>
                     <div class="miner-status">状态：${statusText}</div>
                     <div class="miner-efficiency">效率：${(miner.efficiency * 100).toFixed(0)}%</div>
-                    <div class="miner-intimacy">亲密度：${miner.intimacy || 0}</div>
                 </div>
                 <div class="miner-actions">
                     <button onclick="showMinerDetails(${index})" style="margin-bottom: 8px; background-color: #2196F3; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 0.85em; font-weight: 500; transition: all 0.3s ease; padding: 6px 14px;"><!--
@@ -1707,10 +1715,6 @@ function showMinerDetails(index) {
                     <span class="detail-value">${miner.exp}/${miner.nextExp}</span>
                 </div>
                 <div class="detail-item">
-                    <span class="detail-label">亲密度：</span>
-                    <span class="detail-value">${miner.intimacy || 0}</span>
-                </div>
-                <div class="detail-item">
                     <span class="detail-label">效率：</span>
                     <span class="detail-value">${(miner.efficiency * 100).toFixed(0)}%</span>
                 </div>
@@ -1730,6 +1734,10 @@ function showMinerDetails(index) {
                 ` : ''}
             </div>
             <div class="miner-details-footer">
+                <button onclick="drinkBeerWithMiner(${index}); this.closest('.miner-details-overlay').remove()" class="beer-btn" title="请矿工喝扎啤，增加亲密度">
+                    <img src="images/${Math.random() > 0.5 ? '044e604164b39247048e79d69f7efc8b' : '75b81ddea31ad33c19f5f9544f4a9c18'}.jpg" alt="喝扎啤" style="width: 40px; height: 40px; vertical-align: middle; margin-right: 5px;">
+                    喝扎啤
+                </button>
                 <button onclick="upgradeMiner(${index}); this.closest('.miner-details-overlay').remove()" class="upgrade-btn">升级矿工</button>
                 <button onclick="this.closest('.miner-details-overlay').remove()" class="close-btn">关闭</button>
             </div>
@@ -1843,6 +1851,24 @@ function showMinerDetails(index) {
             transform: translateY(-2px);
             box-shadow: 0 4px 12px rgba(255, 152, 0, 0.4);
         }
+        
+        .beer-btn {
+            padding: 5px 10px;
+            background: none;
+            color: #4CAF50;
+            border: 1px solid #4CAF50;
+            border-radius: 8px;
+            font-size: 1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .beer-btn:hover {
+            background: rgba(76, 175, 80, 0.1);
+            transform: translateY(-2px);
+            box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3);
+        }
     `;
     
     document.head.appendChild(style);
@@ -1879,6 +1905,179 @@ function generateMinersOptions() {
         `;
     });
     return html;
+}
+
+// 与矿工喝扎啤
+function drinkBeerWithMiner(index) {
+    const miner = gameData.minersGuild.miners[index];
+    if (!miner) return;
+    
+    // 检查背包中是否有扎啤
+    if (!gameData.backpack.items['扎啤'] || gameData.backpack.items['扎啤'] < 1) {
+        addMessage('背包中没有扎啤，无法请矿工喝扎啤！');
+        addMessage('请先在商店购买扎啤。');
+        return;
+    }
+    
+    // 扣除背包中的扎啤
+    gameData.backpack.items['扎啤'] -= 1;
+    if (gameData.backpack.items['扎啤'] <= 0) {
+        delete gameData.backpack.items['扎啤'];
+    }
+    
+    // 增加亲密度
+    const intimacyGain = Math.floor(Math.random() * 5) + 5; // 5-9点亲密度
+    miner.intimacy = (miner.intimacy || 0) + intimacyGain;
+    
+    // 根据亲密度获取对话内容
+    const dialogue = getMinerDialogue(miner.intimacy);
+    
+    // 创建对话面板
+    createBeerDialoguePanel(miner.name, dialogue);
+    
+    // 添加消息
+    addMessage(`你请${miner.name}喝了一杯扎啤，你们似乎更熟悉了一些。`);
+    
+    // 保存游戏
+    saveGame();
+}
+
+// 根据亲密度获取对话内容
+function getMinerDialogue(intimacy) {
+    if (intimacy < 20) {
+        return [
+            "谢谢你请我喝啤酒，陌生人！",
+            "这杯啤酒真不错，我感觉干劲十足！",
+            "第一次有人请我喝酒，谢谢你的好意。"
+        ];
+    } else if (intimacy < 50) {
+        return [
+            "嘿，朋友！再来一杯怎么样？",
+            "和你一起工作真开心，这杯酒让我更有动力了！",
+            "我们越来越熟了，谢谢你一直照顾我。"
+        ];
+    } else if (intimacy < 100) {
+        return [
+            "兄弟！这杯酒我敬你！",
+            "有你这样的老板，我愿意为你卖命挖矿！",
+            "我们的关系越来越好了，希望能一直在一起工作。"
+        ];
+    } else {
+        return [
+            "我的好兄弟！这杯酒算我的！",
+            "能遇到你这样的老板，是我最大的幸运！",
+            "我们的友谊已经超越了雇佣关系，我会永远为你工作！"
+        ];
+    }
+}
+
+// 创建喝啤酒对话面板
+function createBeerDialoguePanel(minerName, dialogueOptions) {
+    // 随机选择一个对话
+    const randomDialogue = dialogueOptions[Math.floor(Math.random() * dialogueOptions.length)];
+    
+    // 创建对话面板
+    const panel = document.createElement('div');
+    panel.className = 'beer-dialogue-overlay';
+    panel.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.7);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 1002;
+        animation: fadeIn 0.3s ease-in-out;
+    `;
+    
+    // 添加样式
+    const style = document.createElement('style');
+    style.textContent = `
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        @keyframes slideIn {
+            from { transform: translateY(-20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        .beer-dialogue-panel {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            width: 90%;
+            max-width: 500px;
+            animation: slideIn 0.3s ease-out;
+        }
+        .beer-dialogue-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px;
+            background: linear-gradient(90deg, #2c3e50 0%, #34495e 100%);
+            color: white;
+            border-radius: 12px 12px 0 0;
+        }
+        .beer-dialogue-header h3 {
+            margin: 0;
+            font-size: 1.5em;
+            font-weight: 600;
+        }
+        .beer-dialogue-close {
+            padding: 8px 16px;
+            background: linear-gradient(45deg, #e74c3c 0%, #c0392b 100%);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+        .beer-dialogue-close:hover {
+            background: linear-gradient(45deg, #c0392b 0%, #a93226 100%);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(231, 76, 60, 0.4);
+        }
+        .beer-dialogue-content {
+            padding: 30px;
+            background: white;
+            border-radius: 0 0 12px 12px;
+        }
+        .miner-name {
+            font-size: 1.2em;
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 15px;
+        }
+        .miner-dialogue {
+            font-size: 1.1em;
+            line-height: 1.6;
+            color: #34495e;
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            border-left: 4px solid #3498db;
+        }
+    `;
+    document.head.appendChild(style);
+    
+    panel.innerHTML = `
+        <div class="beer-dialogue-panel">
+            <div class="beer-dialogue-header">
+                <h3>与${minerName}喝扎啤</h3>
+                <button class="beer-dialogue-close" onclick="this.closest('.beer-dialogue-overlay').remove()">关闭</button>
+            </div>
+            <div class="beer-dialogue-content">
+                <div class="miner-name">${minerName}：</div>
+                <div class="miner-dialogue">${randomDialogue}</div>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(panel);
 }
 
 // 合并同类型矿物，将所有带后缀的矿物合并到基础矿物中
@@ -1952,6 +2151,12 @@ function hireMiner() {
     const minersList = document.getElementById('miners-list');
     if (minersList) {
         minersList.innerHTML = generateMinersList();
+    }
+    
+    // 更新自动挖矿设置中的矿工选择下拉菜单
+    const autoMiningMinerSelect = document.getElementById('auto-mining-miner');
+    if (autoMiningMinerSelect) {
+        autoMiningMinerSelect.innerHTML = generateMinersOptions();
     }
     
     // 更新雇佣按钮状态
@@ -2193,17 +2398,7 @@ function getAvailableItems() {
         });
     }
     
-    // 添加图纸
-    availableItems.push({
-        name: '加工台图纸',
-        type: 'blueprint',
-        level: 15
-    });
-    availableItems.push({
-        name: '电池图纸',
-        type: 'blueprint',
-        level: 0
-    });
+
     
     // 添加合金（如果熔炉已解锁）
     if (gameData.furnace.crafted) {
@@ -2521,12 +2716,18 @@ function abandonQuest(questId) {
     
     const quest = gameData.questHall.acceptedQuests[questIndex];
     
-    // 计算扣除的金币
-    const mineral = minerals.find(m => m.name === quest.mineral);
-    if (!mineral) return;
+    // 计算扣除的金币（任务物品价值的2倍）
+    let penalty = 0;
     
-    const totalPrice = quest.amount * mineral.price;
-    const penalty = Math.floor(totalPrice * 0.3);
+    // 尝试找到与任务物品相关的矿物或其他物品的价格
+    const mineral = minerals.find(m => m.name === quest.item);
+    if (mineral) {
+        const totalPrice = quest.amount * mineral.price;
+        penalty = Math.floor(totalPrice * 2); // 惩罚为任务物品价值的2倍
+    } else {
+        // 如果找不到物品价格，使用默认惩罚
+        penalty = Math.floor(quest.amount * 10 * 2); // 默认每个物品10金币，惩罚2倍
+    }
     
     if (gameData.player.gold < penalty) {
         addMessage('金币不足，无法放弃任务！');
@@ -2539,10 +2740,7 @@ function abandonQuest(questId) {
     // 移除任务
     gameData.questHall.acceptedQuests.splice(questIndex, 1);
     
-    // 刷新任务列表
-    refreshQuests();
-    
-    addMessage(`已放弃任务，扣除${penalty}金币！`);
+    addMessage(`已放弃任务，扣除${penalty}金币作为惩罚！`);
     updateQuestUI();
     updateUI();
     saveGame();
@@ -2558,7 +2756,7 @@ function updateQuestUI() {
         return;
     }
     
-    let html = '<h3>任务大厅</h3>';
+    let html = '<h3>任务大厅</h3><div class="quest-penalty-notice" style="color: #FF0000; font-weight: bold; font-size: 1.1em; margin-bottom: 15px; padding: 10px; background-color: #FFF3F3; border-radius: 5px; border: 1px solid #FFCCCC;">⚠️ 放弃任务惩罚任务物品价值2倍金币！！！</div>';
     
     // 添加矿工协会按钮（只有拥有矿工徽章时显示）
     if (gameData.badges && gameData.badges.hasMinersBadge) {
