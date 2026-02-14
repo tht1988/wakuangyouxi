@@ -135,16 +135,16 @@ let gameData = {
             currentLevel: 0, // 当前徽章等级
             maxLevel: 10, // 最大徽章等级
             upgradeMaterials: [
-                { level: 1, materials: { '铜矿': 100, '金币': 5000 } },
-                { level: 2, materials: { '铁矿': 150, '金币': 10000 } },
-                { level: 3, materials: { '钴矿': 200, '金币': 20000 } },
-                { level: 4, materials: { '镍矿': 250, '金币': 30000 } },
-                { level: 5, materials: { '银矿': 300, '金币': 50000 } },
-                { level: 6, materials: { '白金矿': 350, '金币': 80000 } },
-                { level: 7, materials: { '金矿': 400, '金币': 120000 } },
-                { level: 8, materials: { '水晶矿': 450, '金币': 180000 } },
-                { level: 9, materials: { '水晶矿': 500, '金币': 250000 } },
-                { level: 10, materials: { '水晶矿': 600, '金币': 350000 } }
+                { level: 1, materials: { '银质粉末': 100, '磁铁': 100 } },
+                { level: 2, materials: { '银质粉末': 150, '磁铁': 150 } },
+                { level: 3, materials: { '白金粉末': 200, '磁铁': 200 } },
+                { level: 4, materials: { '白金粉末': 250, '磁铁': 250 } },
+                { level: 5, materials: { '白金粉末': 250, '磁铁': 250, '金砖': 20 } },
+                { level: 6, materials: { '金砖': 50, 'pickaxeTicket': 10, 'cartTicket': 10, 'headlightTicket': 10 } },
+                { level: 7, materials: { '金砖': 100, 'pickaxeTicket': 50, 'cartTicket': 50, 'headlightTicket': 50 } },
+                { level: 8, materials: { '水晶簇': 100, 'toolSlot1': 50, 'toolSlot2': 50, 'toolSlot3': 50 } },
+                { level: 9, materials: { '水晶簇': 150, 'toolSlot1': 150, 'toolSlot2': 150, 'toolSlot3': 150 } },
+                { level: 10, materials: { 'forgeDelegate': true, 'magicEquipment': true } }
             ],
             // 徽章等级对应的矿工效率加成
             efficiencyBonuses: [1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0]
@@ -999,17 +999,31 @@ let autoMiningInterval = null;
 // 启动自动挖矿
 function startAutoMining() {
     if (!gameData.minersGuild.autoMining.enabled) {
+        addMessage('自动挖矿未启用！');
         return;
     }
     
     // 清除现有的定时器
     if (autoMiningInterval) {
         clearInterval(autoMiningInterval);
+        addMessage('已清除现有定时器！');
     }
     
-    // 直接设置20秒的定时器，从当前时间开始计时，不立即执行
+    // 添加调试信息
+    const workingMiners = gameData.minersGuild.miners.filter(miner => miner.working && miner.assignedMineral);
+    addMessage(`启动自动挖矿，当前有${workingMiners.length}个工作中的矿工！`);
+    
+    // 立即执行一次挖矿操作，然后再设置定时器
+    addMessage('立即执行一次挖矿操作！');
+    performAutoMining();
+    gameData.minersGuild.autoMining.lastMiningTime = Date.now();
+    saveGame();
+    
+    // 设置20秒的定时器
     const interval = gameData.minersGuild.autoMining.interval * 1000;
+    addMessage(`设置${interval/1000}秒的定时器！`);
     autoMiningInterval = setInterval(() => {
+        addMessage('定时器触发，执行挖矿操作！');
         performAutoMining();
         gameData.minersGuild.autoMining.lastMiningTime = Date.now();
         saveGame();
@@ -1148,51 +1162,82 @@ function stopAutoMining() {
 
 // 执行自动挖矿
 function performAutoMining() {
+    addMessage('开始执行自动挖矿！');
+    
     // 获取所有正在工作的矿工
     const workingMiners = gameData.minersGuild.miners.filter(miner => miner.working && miner.assignedMineral);
     
+    addMessage(`找到${workingMiners.length}个工作中的矿工！`);
+    
     if (workingMiners.length === 0) {
+        addMessage('没有工作中的矿工，自动挖矿结束！');
         return;
     }
     
     // 遍历所有工作中的矿工
     workingMiners.forEach(miner => {
+        addMessage(`正在处理矿工：${miner.name}`);
+        
         const mineralName = miner.assignedMineral;
+        addMessage(`矿工${miner.name}的分配矿物：${mineralName}`);
+        
         const mineral = minerals.find(m => m.name === mineralName);
         
         if (!mineral) {
+            addMessage(`找不到矿物${mineralName}，跳过该矿工！`);
             return;
         }
         
         // 检查玩家等级是否足够
         if (gameData.player.level < mineral.minLevel) {
+            addMessage(`玩家等级${gameData.player.level}低于矿物${mineralName}的需求等级${mineral.minLevel}，跳过该矿工！`);
             return;
         }
         
         // 计算挖矿奖励
+        addMessage(`计算挖矿奖励：矿物${mineralName}，矿工等级${miner.level}`);
         const rewards = calculateMiningRewards(mineral, miner);
+        addMessage(`挖矿奖励：${JSON.stringify(rewards)}`);
         
         // 应用矿工佣金
         applyMinerCommission(rewards);
+        addMessage(`应用佣金后奖励：${JSON.stringify(rewards)}`);
         
         // 将奖励存入协会仓库
+        addMessage(`将奖励存入协会仓库！`);
         for (const [item, amount] of Object.entries(rewards.items)) {
+            if (!gameData.minersGuild.storage) {
+                gameData.minersGuild.storage = {};
+            }
             if (!gameData.minersGuild.storage[item]) {
                 gameData.minersGuild.storage[item] = 0;
             }
             gameData.minersGuild.storage[item] += amount;
+            addMessage(`存入${amount}个${item}到协会仓库，现在仓库中有${gameData.minersGuild.storage[item]}个${item}！`);
         }
         
         // 添加经验
+        addMessage(`玩家获得${rewards.exp}点经验！`);
         gameData.player.exp += rewards.exp;
         
+        // 确保矿工对象有exp和nextExp属性
+        if (miner.exp === undefined) miner.exp = 0;
+        if (miner.nextExp === undefined) miner.nextExp = 100;
+        
+        // 确保rewards.exp有值
+        if (rewards.exp === undefined) rewards.exp = mineral.exp || 10;
+        
         // 为矿工添加经验（如果经验未满）
+        addMessage(`矿工${miner.name}当前经验：${miner.exp}/${miner.nextExp}，获得经验：${rewards.exp * 0.5}`);
         if (miner.exp < miner.nextExp) {
             const minerExpGain = Math.floor(rewards.exp * 0.5); // 矿工获得玩家经验的50%
             miner.exp += minerExpGain;
+            addMessage(`矿工${miner.name}获得${minerExpGain}点经验，当前经验：${miner.exp}/${miner.nextExp}！`);
             if (miner.exp >= miner.nextExp) {
                 addMessage(`${miner.name} 的经验已满，等待升级！`);
             }
+        } else {
+            addMessage(`矿工${miner.name}经验已满，等待升级！`);
         }
         
         // 更新挖矿计数
@@ -1210,13 +1255,24 @@ function performAutoMining() {
         
         // 添加消息，显示是哪个矿工进行了挖矿
         addMessage(`${miner.name} 开采获得了${rewards.items[mineralName] || 0}个${mineralName}！`);
+        addMessage(`资源已存入协会仓库，请打开矿工协会界面查看和取出！`);
+        
+        // 无论仓库界面是否打开，都更新仓库物品显示
+        updateStorageUI();
+        
+        // 更新消息界面
+        updateMessages();
         
         // 更新仓库界面（如果仓库界面已打开）
         const storageItemsDiv = document.getElementById('storage-items');
         if (storageItemsDiv) {
-            updateStorageUI();
+            addMessage('已更新仓库界面！');
+            // 直接更新仓库界面内容
+            updateStorageItems();
         }
     });
+    
+    addMessage('自动挖矿执行完毕！');
 }
 
 // 计算挖矿奖励
@@ -1316,39 +1372,48 @@ function toggleMinersGuild() {
                 currentLevel: 0,
                 maxLevel: 10,
                 upgradeMaterials: [
-                    { level: 1, materials: { '铜矿': 100, '金币': 5000 } },
-                    { level: 2, materials: { '铁矿': 150, '金币': 10000 } },
-                    { level: 3, materials: { '钴矿': 200, '金币': 20000 } },
-                    { level: 4, materials: { '镍矿': 250, '金币': 30000 } },
-                    { level: 5, materials: { '银矿': 300, '金币': 50000 } },
-                    { level: 6, materials: { '白金矿': 350, '金币': 80000 } },
-                    { level: 7, materials: { '金矿': 400, '金币': 120000 } },
-                    { level: 8, materials: { '水晶矿': 450, '金币': 180000 } },
-                    { level: 9, materials: { '水晶矿': 500, '金币': 250000 } },
-                    { level: 10, materials: { '水晶矿': 600, '金币': 350000 } }
+                    { level: 1, materials: { '银质粉末': 100, '磁铁': 100 } },
+                    { level: 2, materials: { '银质粉末': 150, '磁铁': 150 } },
+                    { level: 3, materials: { '白金粉末': 200, '磁铁': 200 } },
+                    { level: 4, materials: { '白金粉末': 250, '磁铁': 250 } },
+                    { level: 5, materials: { '白金粉末': 250, '磁铁': 250, '金砖': 20 } },
+                    { level: 6, materials: { '金砖': 50, 'pickaxeTicket': 10, 'cartTicket': 10, 'headlightTicket': 10 } },
+                    { level: 7, materials: { '金砖': 100, 'pickaxeTicket': 50, 'cartTicket': 50, 'headlightTicket': 50 } },
+                    { level: 8, materials: { '水晶簇': 100, 'toolSlot1': 50, 'toolSlot2': 50, 'toolSlot3': 50 } },
+                    { level: 9, materials: { '水晶簇': 150, 'toolSlot1': 150, 'toolSlot2': 150, 'toolSlot3': 150 } },
+                    { level: 10, materials: { 'forgeDelegate': true, 'magicEquipment': true } }
                 ],
                 efficiencyBonuses: [1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0]
             }
         };
-    } else if (!gameData.minersGuild.badgeSystem) {
-        // 确保badgeSystem属性存在
-        gameData.minersGuild.badgeSystem = {
-            currentLevel: 0,
-            maxLevel: 10,
-            upgradeMaterials: [
-                { level: 1, materials: { '铜矿': 100, '金币': 5000 } },
-                { level: 2, materials: { '铁矿': 150, '金币': 10000 } },
-                { level: 3, materials: { '钴矿': 200, '金币': 20000 } },
-                { level: 4, materials: { '镍矿': 250, '金币': 30000 } },
-                { level: 5, materials: { '银矿': 300, '金币': 50000 } },
-                { level: 6, materials: { '白金矿': 350, '金币': 80000 } },
-                { level: 7, materials: { '金矿': 400, '金币': 120000 } },
-                { level: 8, materials: { '水晶矿': 450, '金币': 180000 } },
-                { level: 9, materials: { '水晶矿': 500, '金币': 250000 } },
-                { level: 10, materials: { '水晶矿': 600, '金币': 350000 } }
-            ],
-            efficiencyBonuses: [1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0]
-        };
+    } else {
+        // 确保badgeSystem属性完整
+        if (!gameData.minersGuild.badgeSystem.currentLevel) gameData.minersGuild.badgeSystem.currentLevel = 0;
+        if (!gameData.minersGuild.badgeSystem.maxLevel) gameData.minersGuild.badgeSystem.maxLevel = 10;
+        
+        // 确保upgradeMaterials数组完整
+        if (!gameData.minersGuild.badgeSystem.upgradeMaterials || gameData.minersGuild.badgeSystem.upgradeMaterials.length !== 10) {
+            gameData.minersGuild.badgeSystem.upgradeMaterials = [
+                { level: 1, materials: { '银质粉末': 100, '磁铁': 100 } },
+                { level: 2, materials: { '银质粉末': 150, '磁铁': 150 } },
+                { level: 3, materials: { '白金粉末': 200, '磁铁': 200 } },
+                { level: 4, materials: { '白金粉末': 250, '磁铁': 250 } },
+                { level: 5, materials: { '白金粉末': 250, '磁铁': 250, '金砖': 20 } },
+                { level: 6, materials: { '金砖': 50, 'pickaxeTicket': 10, 'cartTicket': 10, 'headlightTicket': 10 } },
+                { level: 7, materials: { '金砖': 100, 'pickaxeTicket': 50, 'cartTicket': 50, 'headlightTicket': 50 } },
+                { level: 8, materials: { '水晶簇': 100, 'toolSlot1': 50, 'toolSlot2': 50, 'toolSlot3': 50 } },
+                { level: 9, materials: { '水晶簇': 150, 'toolSlot1': 150, 'toolSlot2': 150, 'toolSlot3': 150 } },
+                { level: 10, materials: { 'forgeDelegate': true, 'magicEquipment': true } }
+            ];
+        }
+        
+        // 确保efficiencyBonuses数组完整
+        if (!gameData.minersGuild.badgeSystem.efficiencyBonuses || gameData.minersGuild.badgeSystem.efficiencyBonuses.length !== 11) {
+            gameData.minersGuild.badgeSystem.efficiencyBonuses = [1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0];
+        }
+        
+        // 确保currentLevel不超过maxLevel
+        gameData.minersGuild.badgeSystem.currentLevel = Math.min(gameData.minersGuild.badgeSystem.currentLevel, gameData.minersGuild.badgeSystem.maxLevel);
     }
     
     // 确保storage字段存在
@@ -3898,6 +3963,20 @@ function completeMining(mineral) {
     
     addGainedExp(expWithBonus);
     checkLevelUp();
+    
+    // 为所有工作中的矿工添加经验（手动挖矿时）
+    // 只给分配到当前矿物的矿工添加经验
+    const workingMiners = gameData.minersGuild.miners.filter(miner => miner.working && miner.assignedMineral === mineral.name);
+    workingMiners.forEach(miner => {
+        if (miner.exp < miner.nextExp) {
+            const minerExpGain = Math.floor(expWithBonus * 0.5); // 矿工获得玩家经验的50%
+            miner.exp += minerExpGain;
+            if (miner.exp >= miner.nextExp) {
+                addMessage(`${miner.name} 的经验已满，等待升级！`);
+            }
+        }
+    });
+    
     // 检查工具状态和消耗
     if (!gameData.tools.cart) gameData.tools.cart = { crafted: false, active: true, fuelType: 'coal', fuelCapacity: 50, currentFuel: 0 }; // fuelType: 'coal' 或 'fuel'
     if (!gameData.tools.headlight) gameData.tools.headlight = { crafted: false, active: true };
@@ -4231,10 +4310,44 @@ function completeMining(mineral) {
     saveGame();
 }
 
+// 获取徽章升级所需的矿工需求
+function getBadgeMinerRequirement(level) {
+    switch(level) {
+        case 1: return { count: 1, minLevel: 2 }; // 0→1: 至少1个矿工到2级
+        case 2: return { count: 2, minLevel: 2 }; // 1→2: 至少2个矿工到2级
+        case 3: return { count: 1, minLevel: 3 }; // 2→3: 至少1个矿工到3级
+        case 4: return { count: 2, minLevel: 3 }; // 3→4: 至少2个矿工到3级
+        case 5: return { count: 3, minLevel: 3 }; // 4→5: 至少3个矿工到3级
+        case 6: return { count: 4, minLevel: 3 }; // 5→6: 至少4个矿工到3级
+        case 7: return { count: 1, minLevel: 4 }; // 6→7: 至少1个矿工到4级
+        case 8: return { count: 2, minLevel: 4 }; // 7→8: 至少2个矿工到4级
+        case 9: return { count: 4, minLevel: 4 }; // 8→9: 至少4个矿工到4级
+        case 10: return { count: 5, minLevel: 4 }; // 9→10: 5个矿工到4级
+        default: return { count: 0, minLevel: 0 };
+    }
+}
+
+// 检查是否满足矿工需求
+function checkMinerRequirements(level) {
+    const requirement = getBadgeMinerRequirement(level);
+    if (requirement.count === 0) return true;
+    
+    // 统计符合要求的矿工数量
+    const qualifiedMiners = gameData.minersGuild.miners.filter(miner => {
+        return miner.level >= requirement.minLevel;
+    });
+    
+    return qualifiedMiners.length >= requirement.count;
+}
+
 // 升级徽章
 function upgradeBadge() {
     const badgeSystem = gameData.minersGuild.badgeSystem;
-    const currentLevel = badgeSystem.currentLevel;
+    let currentLevel = badgeSystem.currentLevel;
+    
+    // 确保currentLevel在合理范围内
+    currentLevel = Math.max(0, Math.min(currentLevel, badgeSystem.maxLevel));
+    badgeSystem.currentLevel = currentLevel;
     
     // 检查是否已达到最高等级
     if (currentLevel >= badgeSystem.maxLevel) {
@@ -4247,18 +4360,65 @@ function upgradeBadge() {
     const upgradeData = badgeSystem.upgradeMaterials.find(data => data.level === nextLevel);
     
     if (!upgradeData) {
+        console.error('升级数据错误：找不到等级', nextLevel, '的升级材料');
+        console.error('当前等级:', currentLevel, '最大等级:', badgeSystem.maxLevel);
+        console.error('升级材料列表:', badgeSystem.upgradeMaterials);
         addMessage('升级数据错误！');
         return;
     }
     
-    // 检查材料是否足够
-    if (!hasEnoughMaterials(upgradeData.materials)) {
+    // 检查矿工需求
+    if (!checkMinerRequirements(nextLevel)) {
+        const requirement = getBadgeMinerRequirement(nextLevel);
+        addMessage(`矿工需求不满足！需要至少${requirement.count}个矿工达到${requirement.minLevel}级！`);
+        return;
+    }
+    
+    // 检查特殊材料要求
+    const specialMaterials = Object.keys(upgradeData.materials).filter(key => {
+        return key === 'forgeDelegate' || key === 'magicEquipment';
+    });
+    
+    for (const specialMaterial of specialMaterials) {
+        if (specialMaterial === 'forgeDelegate') {
+            // 检查是否完成锻造委托
+            if (!gameData.specialEvents || !gameData.specialEvents.forgeDelegate || !gameData.specialEvents.forgeDelegate.completed) {
+                addMessage('特殊需求未满足！需要完成锻造委托：成为学徒锻造师！');
+                return;
+            }
+        } else if (specialMaterial === 'magicEquipment') {
+            // 检查是否锻造了魔法稀有度装备
+            if (!gameData.specialEvents || !gameData.specialEvents.magicEquipment || !gameData.specialEvents.magicEquipment.completed) {
+                addMessage('特殊需求未满足！需要锻造1个魔法稀有度装备！');
+                return;
+            }
+        }
+    }
+    
+    // 检查普通材料是否足够
+    const normalMaterials = {};
+    for (const [item, amount] of Object.entries(upgradeData.materials)) {
+        if (item !== 'forgeDelegate' && item !== 'magicEquipment') {
+            normalMaterials[item] = amount;
+        }
+    }
+    
+    if (!hasEnoughMaterials(normalMaterials)) {
         addMessage('材料不足，无法升级徽章！');
         return;
     }
     
-    // 扣除材料
-    deductMaterials(upgradeData.materials);
+    // 扣除普通材料
+    deductMaterials(normalMaterials);
+    
+    // 处理特殊材料需求（标记为已完成）
+    for (const specialMaterial of specialMaterials) {
+        if (specialMaterial === 'forgeDelegate' && gameData.specialEvents.forgeDelegate) {
+            gameData.specialEvents.forgeDelegate.completed = false; // 重置委托状态，防止重复使用
+        } else if (specialMaterial === 'magicEquipment' && gameData.specialEvents.magicEquipment) {
+            gameData.specialEvents.magicEquipment.completed = false; // 重置装备状态，防止重复使用
+        }
+    }
     
     // 升级徽章
     badgeSystem.currentLevel = nextLevel;
@@ -4284,7 +4444,20 @@ function hasEnoughMaterials(materials) {
             if (gameData.player.gold < amount) {
                 return false;
             }
+        } else if (item.endsWith('Ticket')) {
+            // 处理工具等级提升券
+            const toolType = item.replace('Ticket', ''); // pickaxe, cart, headlight
+            if (!gameData.unlockTickets || !gameData.unlockTickets[toolType] || gameData.unlockTickets[toolType] < amount) {
+                return false;
+            }
+        } else if (item.startsWith('toolSlot')) {
+            // 处理工具插片
+            // 假设工具插片存储在backpack.items中
+            if (!gameData.backpack.items[item] || gameData.backpack.items[item] < amount) {
+                return false;
+            }
         } else {
+            // 普通材料
             if (!gameData.backpack.items[item] || gameData.backpack.items[item] < amount) {
                 return false;
             }
@@ -4298,8 +4471,26 @@ function deductMaterials(materials) {
     for (const [item, amount] of Object.entries(materials)) {
         if (item === '金币') {
             gameData.player.gold -= amount;
+        } else if (item.endsWith('Ticket')) {
+            // 处理工具等级提升券
+            const toolType = item.replace('Ticket', ''); // pickaxe, cart, headlight
+            if (gameData.unlockTickets && gameData.unlockTickets[toolType]) {
+                gameData.unlockTickets[toolType] -= amount;
+                // 同时更新tools对象中的对应字段
+                if (gameData.tools && gameData.tools[toolType]) {
+                    gameData.tools[toolType].unlockTickets -= amount;
+                }
+            }
+        } else if (item.startsWith('toolSlot')) {
+            // 处理工具插片
+            if (gameData.backpack.items[item]) {
+                gameData.backpack.items[item] -= amount;
+            }
         } else {
-            gameData.backpack.items[item] -= amount;
+            // 普通材料
+            if (gameData.backpack.items[item]) {
+                gameData.backpack.items[item] -= amount;
+            }
         }
     }
 }
@@ -4312,7 +4503,14 @@ function updateMinersEfficiency() {
     
     // 更新所有矿工的效率
     gameData.minersGuild.miners.forEach(miner => {
-        miner.efficiency = efficiencyBonus;
+        // 基础效率：根据矿工等级计算
+        const baseEfficiency = 1.0 + (miner.level - 1) * 0.1; // 每级矿工增加10%基础效率
+        
+        // 徽章效率加成：直接乘以基础效率
+        const totalEfficiency = baseEfficiency * efficiencyBonus;
+        
+        // 确保效率不会低于基础值
+        miner.efficiency = Math.max(totalEfficiency, baseEfficiency);
     });
 }
 
@@ -4345,16 +4543,91 @@ function updateBadgeUI() {
     const badgeSection = document.querySelector('.badge-upgrade-section');
     if (badgeSection) {
         let materialsHTML = '';
+        let specialRequirementsHTML = '';
+        let minerRequirementHTML = '';
+        
         if (upgradeData && currentLevel < badgeSystem.maxLevel) {
-            for (const [item, amount] of Object.entries(upgradeData.materials)) {
-                const playerHas = item === '金币' ? gameData.player.gold : (gameData.backpack.items[item] || 0);
-                const enough = playerHas >= amount;
-                materialsHTML += `
-                    <div class="material-item">
-                        <span class="material-name">${item}：</span>
-                        <span class="material-amount ${enough ? 'enough' : 'not-enough'}">${playerHas}/${amount}</span>
+            // 生成矿工需求信息
+            const minerRequirement = getBadgeMinerRequirement(nextLevel);
+            if (minerRequirement.count > 0) {
+                const qualifiedMiners = gameData.minersGuild.miners.filter(miner => {
+                    return miner.level >= minerRequirement.minLevel;
+                });
+                const meetsRequirements = qualifiedMiners.length >= minerRequirement.count;
+                minerRequirementHTML = `
+                    <div class="miner-requirements">
+                        <h5>矿工需求：</h5>
+                        <div class="miner-requirement-item">
+                            <span>需要至少${minerRequirement.count}个矿工达到${minerRequirement.minLevel}级</span>
+                            <span class="miner-requirement-status ${meetsRequirements ? 'enough' : 'not-enough'}">(${qualifiedMiners.length}/${minerRequirement.count})</span>
+                        </div>
                     </div>
                 `;
+            }
+            
+            // 生成特殊需求信息
+            const specialMaterials = Object.keys(upgradeData.materials).filter(key => {
+                return key === 'forgeDelegate' || key === 'magicEquipment';
+            });
+            
+            if (specialMaterials.length > 0) {
+                specialRequirementsHTML = `<div class="special-requirements"><h5>特殊需求：</h5>`;
+                for (const specialMaterial of specialMaterials) {
+                    let status = 'not-enough';
+                    let description = '';
+                    
+                    if (specialMaterial === 'forgeDelegate') {
+                        description = '完成锻造委托：成为学徒锻造师';
+                        if (gameData.specialEvents && gameData.specialEvents.forgeDelegate && gameData.specialEvents.forgeDelegate.completed) {
+                            status = 'enough';
+                        }
+                    } else if (specialMaterial === 'magicEquipment') {
+                        description = '锻造1个魔法稀有度装备';
+                        if (gameData.specialEvents && gameData.specialEvents.magicEquipment && gameData.specialEvents.magicEquipment.completed) {
+                            status = 'enough';
+                        }
+                    }
+                    
+                    specialRequirementsHTML += `
+                        <div class="special-requirement-item ${status}">
+                            ${description}
+                            <span class="special-requirement-status">${status === 'enough' ? '✓' : '✗'}</span>
+                        </div>
+                    `;
+                }
+                specialRequirementsHTML += `</div>`;
+            }
+            
+            // 生成普通材料信息
+            const normalMaterials = Object.entries(upgradeData.materials).filter(([key, value]) => {
+                return key !== 'forgeDelegate' && key !== 'magicEquipment';
+            });
+            
+            if (normalMaterials.length > 0) {
+                materialsHTML = `<div class="upgrade-materials"><h5>升级所需材料：</h5>`;
+                for (const [item, amount] of normalMaterials) {
+                    let playerHas = 0;
+                    
+                    if (item === '金币') {
+                        playerHas = gameData.player.gold;
+                    } else if (item.endsWith('Ticket')) {
+                        // 处理工具等级提升券
+                        const toolType = item.replace('Ticket', '');
+                        playerHas = gameData.unlockTickets && gameData.unlockTickets[toolType] ? gameData.unlockTickets[toolType] : 0;
+                    } else {
+                        // 普通材料
+                        playerHas = gameData.backpack.items[item] || 0;
+                    }
+                    
+                    const enough = playerHas >= amount;
+                    materialsHTML += `
+                        <div class="material-item">
+                            <span class="material-name">${item}：</span>
+                            <span class="material-amount ${enough ? 'enough' : 'not-enough'}">${playerHas}/${amount}</span>
+                        </div>
+                    `;
+                }
+                materialsHTML += `</div>`;
             }
         }
         
@@ -4365,10 +4638,9 @@ function updateBadgeUI() {
                 <div class="badge-efficiency">矿工效率加成：${((badgeSystem.efficiencyBonuses[currentLevel] - 1) * 100).toFixed(0)}%</div>
             </div>
             ${currentLevel < badgeSystem.maxLevel ? `
-                <div class="upgrade-materials">
-                    <h5>升级所需材料：</h5>
-                    ${materialsHTML}
-                </div>
+                ${minerRequirementHTML}
+                ${specialRequirementsHTML}
+                ${materialsHTML}
                 <button onclick="upgradeBadge()" class="upgrade-btn">升级徽章</button>
             ` : `
                 <div class="max-level">徽章已达到最高等级！</div>
@@ -4915,6 +5187,25 @@ function updateUI() {
     
     // 更新任务UI
     updateQuestUI();
+    
+    // 控制制作矿车和头灯按钮的显示状态
+    const craftCartBtn = document.getElementById('craft-cart');
+    if (craftCartBtn) {
+        if (gameData.tools.cart.crafted) {
+            craftCartBtn.style.display = 'none';
+        } else {
+            craftCartBtn.style.display = 'inline-block';
+        }
+    }
+    
+    const craftHeadlightBtn = document.getElementById('craft-headlight');
+    if (craftHeadlightBtn) {
+        if (gameData.tools.headlight.crafted) {
+            craftHeadlightBtn.style.display = 'none';
+        } else {
+            craftHeadlightBtn.style.display = 'inline-block';
+        }
+    }
 }
 
 function updateToolDescriptions(descriptions) {
@@ -6465,8 +6756,7 @@ function updateFurnaceUI() {
         smeltBtn.disabled = false;
         alloyBtn.disabled = false; // 移除禁用状态，在点击事件中检查等级
         furnaceLevel.textContent = gameData.furnace.level;
-        craftFurnaceBtn.textContent = '熔炉已制作';
-        craftFurnaceBtn.disabled = true;
+        craftFurnaceBtn.style.display = 'none'; // 熔炉制作完成后隐藏按钮
         
         // 更新燃料系统UI
         updateFurnaceFuelUI();
@@ -6502,6 +6792,7 @@ function updateFurnaceUI() {
         furnaceLevel.textContent = '未制作';
         craftFurnaceBtn.textContent = '制作熔炉 (石矿20)';
         craftFurnaceBtn.disabled = false;
+        craftFurnaceBtn.style.display = 'inline-block'; // 熔炉未制作时显示按钮
         const upgradeBtn = document.getElementById('upgrade-furnace');
         if (upgradeBtn) {
             upgradeBtn.textContent = '需要先制作熔炉';
@@ -7404,7 +7695,18 @@ function ensureGameDataIntegrity() {
             badgeSystem: {
                 currentLevel: 0,
                 maxLevel: 10,
-                upgradeMaterials: [],
+                upgradeMaterials: [
+                    { level: 1, materials: { '银质粉末': 100, '磁铁': 100 } },
+                    { level: 2, materials: { '银质粉末': 150, '磁铁': 150 } },
+                    { level: 3, materials: { '白金粉末': 200, '磁铁': 200 } },
+                    { level: 4, materials: { '白金粉末': 250, '磁铁': 250 } },
+                    { level: 5, materials: { '白金粉末': 250, '磁铁': 250, '金砖': 20 } },
+                    { level: 6, materials: { '金砖': 50, 'pickaxeTicket': 10, 'cartTicket': 10, 'headlightTicket': 10 } },
+                    { level: 7, materials: { '金砖': 100, 'pickaxeTicket': 50, 'cartTicket': 50, 'headlightTicket': 50 } },
+                    { level: 8, materials: { '水晶簇': 100, 'toolSlot1': 50, 'toolSlot2': 50, 'toolSlot3': 50 } },
+                    { level: 9, materials: { '水晶簇': 150, 'toolSlot1': 150, 'toolSlot2': 150, 'toolSlot3': 150 } },
+                    { level: 10, materials: { 'forgeDelegate': true, 'magicEquipment': true } }
+                ],
                 efficiencyBonuses: [1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0]
             }
         };
@@ -9470,11 +9772,11 @@ function updateWorkshopUI() {
     
     if (unlockWorkshopBtn) {
         if (gameData.workshop.unlocked) {
-            unlockWorkshopBtn.textContent = '加工台已解锁';
-            unlockWorkshopBtn.disabled = true;
+            unlockWorkshopBtn.style.display = 'none'; // 解锁后隐藏按钮
         } else {
             unlockWorkshopBtn.textContent = '解锁加工台 (需要等级15和加工台图纸)';
             unlockWorkshopBtn.disabled = false;
+            unlockWorkshopBtn.style.display = 'inline-block'; // 未解锁时显示按钮
         }
     }
 }
