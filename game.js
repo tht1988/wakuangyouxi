@@ -1306,10 +1306,14 @@ function updateToolSlotsUI() {
         craftBtn.addEventListener('click', () => {
             // 切换制作插片下拉菜单的显示状态
             craftDropdown.style.display = craftDropdown.style.display === 'none' ? 'block' : 'none';
-            // 隐藏合成插片下拉菜单
+            // 隐藏其他所有下拉菜单
             const combineDropdown = document.getElementById('combine-tool-slots-dropdown');
+            const equipDropdown = document.getElementById('equip-tool-slot-dropdown');
             if (combineDropdown) {
                 combineDropdown.style.display = 'none';
+            }
+            if (equipDropdown) {
+                equipDropdown.style.display = 'none';
             }
         });
     }
@@ -1321,10 +1325,14 @@ function updateToolSlotsUI() {
         combineBtn.addEventListener('click', () => {
             // 切换合成插片下拉菜单的显示状态
             combineDropdown.style.display = combineDropdown.style.display === 'none' ? 'block' : 'none';
-            // 隐藏制作插片下拉菜单
+            // 隐藏其他所有下拉菜单
             const craftDropdown = document.getElementById('craft-tool-slot-dropdown');
+            const equipDropdown = document.getElementById('equip-tool-slot-dropdown');
             if (craftDropdown) {
                 craftDropdown.style.display = 'none';
+            }
+            if (equipDropdown) {
+                equipDropdown.style.display = 'none';
             }
         });
     }
@@ -1417,7 +1425,7 @@ function updateToolSlotEquipment() {
             <div style="margin-bottom: 15px; padding: 12px; background-color: #f5f5f5; border-radius: 5px; border: 1px solid #ddd;">
                 <div style="font-weight: bold; margin-bottom: 8px;">槽位 ${i + 1}</div>
                 ${slot ? `
-                    <div style="margin-bottom: 10px; padding: 8px; background-color: ${slotRarities.find(r => r.id === slot.rarity)?.color || '#ffffff'}; color: #000; border-radius: 3px;">
+                    <div style="margin-bottom: 10px; padding: 8px; background-color: ${window.slotRarities.find(r => r.id === slot.rarity)?.color || '#ffffff'}; color: #000; border-radius: 3px;">
                         <div>${getSlotName(slot.baseName)} (${slotRarityNames[slot.rarity]})</div>
                         <div style="font-size: 0.8em; margin-top: 3px;">效果: ${getSlotEffectDescription(slot.baseName, slot.rarity, slot.effect)}</div>
                     </div>
@@ -2203,7 +2211,7 @@ function updateToolSlotInfo() {
     if (!toolSlotDetails) return;
     
     // 获取配方
-    const recipe = slotCraftingRecipes[toolSlotType];
+    const recipe = window.slotCraftingRecipes[toolSlotType];
     
     if (recipe) {
         // 计算材料需求
@@ -2311,7 +2319,7 @@ function craftToolSlot() {
     
     if (quantityInput) {
         const quantity = parseInt(quantityInput.value);
-        const recipe = slotCraftingRecipes[toolSlotType];
+        const recipe = window.slotCraftingRecipes[toolSlotType];
         
         if (recipe) {
             // 转换插片类型为中文名称
