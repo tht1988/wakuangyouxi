@@ -216,21 +216,35 @@ const backpackExpansions = {
 function mergeSameTypeItems() {
     const mergedItems = {};
     
-    // 遍历所有物品，合并同类型矿物
+    // 遍历所有物品，合并同类型矿物，但保留插片不变
     for (const [itemName, count] of Object.entries(gameData.backpack.items)) {
-        const baseName = itemName.split('_')[0];
-        if (!mergedItems[baseName]) {
-            mergedItems[baseName] = 0;
+        // 检查是否是插片（包含Slot或中文插片名称）
+        const isSlot = itemName.includes('Slot') || 
+                     itemName.includes('插片') ||
+                     itemName === 'toolSlot1' ||
+                     itemName === 'headlightSlot' ||
+                     itemName === 'cartSlot' ||
+                     itemName === 'pickaxeSlot';
+        
+        if (isSlot) {
+            // 插片不合并，直接保留原始名称
+            mergedItems[itemName] = (mergedItems[itemName] || 0) + count;
+        } else {
+            // 矿物合并，只保留基础名称
+            const baseName = itemName.split('_')[0];
+            if (!mergedItems[baseName]) {
+                mergedItems[baseName] = 0;
+            }
+            mergedItems[baseName] += count;
         }
-        mergedItems[baseName] += count;
     }
     
     // 清空原物品列表
     gameData.backpack.items = {};
     
     // 重新添加合并后的物品
-    for (const [baseName, totalCount] of Object.entries(mergedItems)) {
-        gameData.backpack.items[baseName] = totalCount;
+    for (const [name, totalCount] of Object.entries(mergedItems)) {
+        gameData.backpack.items[name] = totalCount;
     }
 }
 
@@ -1001,22 +1015,24 @@ let questRefreshCountdownInterval = null;
 // 使用外部配置文件中定义的变量
 try {
     // 从外部配置获取稀有度等级
-    const slotRarityIds = slotRarities.map(rarity => rarity.id);
+    const slotRarityIds = window.slotRarities.map(rarity => rarity.id);
+    
+    // 构建稀有度名称映射
+    window.slotRarityNames = {};
+    window.slotRarities.forEach(rarity => {
+        window.slotRarityNames[rarity.id] = rarity.name;
+    });
     
     // 如果需要保持原有变量名，重新定义它们
     window.slotRarities = slotRarityIds;
     
-    // 构建稀有度名称映射
-    window.slotRarityNames = {};
-    slotRarities.forEach(rarity => {
-        slotRarityNames[rarity.id] = rarity.name;
-    });
-    
-    // 简化插片效果结构，只保留名称数组
-    window.slotEffects = {};
-    Object.keys(slotEffects).forEach(toolType => {
-        window.slotEffects[toolType] = slotEffects[toolType].map(effect => effect.name);
-    });
+    // 保留原始插片效果结构，添加一个方便访问名称的映射
+// 原始结构: { toolType: [{ id: 'effectId', name: '效果名称' }, ...] }
+// 同时创建一个名称数组映射，方便随机选择效果
+window.slotEffectNames = {};
+Object.keys(window.slotEffects).forEach(toolType => {
+    window.slotEffectNames[toolType] = window.slotEffects[toolType].map(effect => effect.name);
+});
 } catch (error) {
     console.warn('未能加载外部插片配置，使用默认配置:', error);
     // 备用默认配置
@@ -1037,39 +1053,85 @@ try {
 
 // 获取插片基础名称和稀有度
 function getSlotBaseAndRarity(fullSlotName) {
-    if (fullSlotName.includes('_')) {
-        const parts = fullSlotName.split('_');
-        return {
-            baseName: parts[0],
-            rarity: parts[1]
-        };
-    }
+    // 使用外部映射文件中的解析函数来解析插片名称
+    const parsedInfo = window.parseSlotInternalFormat(fullSlotName);
+    
+    // 返回简化的结果，保持与原有函数的兼容性
     return {
-        baseName: fullSlotName,
-        rarity: 'common'
+        baseName: parsedInfo.baseName,
+        rarity: parsedInfo.rarityId,
+        effect: parsedInfo.effect
     };
 }
 
 // 获取插片类型
 function getSlotType(fullSlotName) {
     const baseName = getSlotBaseAndRarity(fullSlotName).baseName;
+    // 处理内部格式的baseName
     if (baseName === 'toolSlot1') return 'base';
     if (baseName === 'headlightSlot') return 'headlight';
     if (baseName === 'cartSlot') return 'cart';
     if (baseName === 'pickaxeSlot') return 'pickaxe';
+    // 处理显示格式的baseName
+    if (baseName === '采矿锄插片') return 'pickaxe';
+    if (baseName === '矿车插片') return 'cart';
+    if (baseName === '头灯插片') return 'headlight';
+    if (baseName === '基础工具插片') return 'base';
     return 'unknown';
 }
 
 // 添加带稀有度的插片到背包
-function addSlotWithRarity(baseSlotName, rarity = 'common') {
-    const fullSlotName = `${baseSlotName}_${rarity}`;
+function addSlotWithRarity(baseSlotName, rarity = 'common', effect = '') {
+    // 检查baseSlotName是否已经是内部格式（包含Slot）
+    let internalBaseName = baseSlotName;
+    
+    // 如果是显示格式，转换为内部格式
+    if (baseSlotName === '采矿锄插片') internalBaseName = 'pickaxeSlot';
+    else if (baseSlotName === '矿车插片') internalBaseName = 'cartSlot';
+    else if (baseSlotName === '头灯插片') internalBaseName = 'headlightSlot';
+    else if (baseSlotName === '基础工具插片') internalBaseName = 'toolSlot1';
+    
+    // 如果没有提供效果，随机分配一个
+    if (!effect) {
+        // 直接根据internalBaseName获取插片类型
+        let slotType;
+        switch (internalBaseName) {
+            case 'toolSlot1':
+                slotType = 'base';
+                break;
+            case 'headlightSlot':
+                slotType = 'headlight';
+                break;
+            case 'cartSlot':
+                slotType = 'cart';
+                break;
+            case 'pickaxeSlot':
+                slotType = 'pickaxe';
+                break;
+            default:
+                slotType = 'unknown';
+        }
+        
+        const possibleEffects = window.slotEffectNames[slotType] || [];
+        
+        if (possibleEffects.length > 0) {
+            const randomIndex = Math.floor(Math.random() * possibleEffects.length);
+            effect = possibleEffects[randomIndex];
+        } else {
+            // 如果没有可用效果，确保effect不为空
+            effect = '成品转化'; // 默认效果
+        }
+    }
+    
+    // 使用外部映射文件中的格式化函数生成统一的内部格式插片名称
+    const fullSlotName = window.formatSlotInternalName(internalBaseName, rarity, effect);
     
     // 检查背包是否已满
     calculateBackpackStats();
     const currentStackSize = gameData.backpack.currentStackSize;
     let added = false;
     
-    // 尝试添加到现有堆叠
+    // 尝试添加到现有堆叠（考虑基础名称、稀有度和效果）
     for (const [name, count] of Object.entries(gameData.backpack.items)) {
         if (name === fullSlotName && count < currentStackSize) {
             gameData.backpack.items[name]++;
@@ -1102,11 +1164,10 @@ function addSlotWithRarity(baseSlotName, rarity = 'common') {
     
     // 更新背包显示
     updateBackpackDisplay();
-    updateItemTotals();
+    showItemTotals();
     
     // 触发相关更新
-    checkForLevelUp();
-    checkToolLevelUp();
+    checkLevelUp();
     checkSpecialEvents();
     updateGainedInfo();
     
@@ -1117,13 +1178,18 @@ function addSlotWithRarity(baseSlotName, rarity = 'common') {
 function getAllSlots() {
     const slots = [];
     for (const [itemName, count] of Object.entries(gameData.backpack.items)) {
-        if (itemName.endsWith('Slot') || itemName.includes('toolSlot1')) {
-            const { baseName, rarity } = getSlotBaseAndRarity(itemName);
-            const type = getSlotType(itemName);
+        // 尝试解析物品，看是否是插片
+        const { baseName, rarity, effect } = getSlotBaseAndRarity(itemName);
+        const type = getSlotType(itemName);
+        
+        // 检查是否是有效的插片类型
+        if (type === 'pickaxe' || type === 'cart' || type === 'headlight' || type === 'base') {
+            // 即使效果为空，也要添加到列表中，避免插片丢失
             slots.push({
                 fullName: itemName,
                 baseName: baseName,
                 rarity: rarity,
+                effect: effect || '',
                 count: count,
                 type: type
             });
@@ -1309,10 +1375,16 @@ function updateToolSlotEquipment() {
     const toolType = document.getElementById('equip-tool-type')?.value;
     const slotsContainer = document.getElementById('tool-slots-container');
     
+    // 移除对 slotSelect 的依赖
     if (!toolType || !slotsContainer) return;
     
     const tool = gameData.tools[toolType];
     if (!tool) return;
+    
+    // 确保 tool.slots 存在
+    if (!tool.slots) {
+        tool.slots = [null, null, null];
+    }
     
     // 获取工具对应的插片类型
     let slotType;
@@ -1347,7 +1419,7 @@ function updateToolSlotEquipment() {
                 ${slot ? `
                     <div style="margin-bottom: 10px; padding: 8px; background-color: ${slotRarities.find(r => r.id === slot.rarity)?.color || '#ffffff'}; color: #000; border-radius: 3px;">
                         <div>${getSlotName(slot.baseName)} (${slotRarityNames[slot.rarity]})</div>
-                        <div style="font-size: 0.8em; margin-top: 3px;">效果: ${getSlotEffectDescription(slot.baseName, slot.rarity)}</div>
+                        <div style="font-size: 0.8em; margin-top: 3px;">效果: ${getSlotEffectDescription(slot.baseName, slot.rarity, slot.effect)}</div>
                     </div>
                     <button onclick="unequipSlot('${toolType}', ${i})" style="padding: 5px 12px; background-color: #f44336; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 0.9em;">
                         卸载
@@ -1359,7 +1431,7 @@ function updateToolSlotEquipment() {
                     <select id="slot-select-${i}" style="padding: 5px; border: 1px solid #ddd; border-radius: 3px; margin-right: 8px;">
                         <option value="">选择插片</option>
                         ${availableSlots.map(slot => `
-                            <option value="${slot.fullName}">${getSlotName(slot.baseName)} (${slotRarityNames[slot.rarity]})</option>
+                            <option value="${slot.fullName}">${getSlotName(slot.baseName)} (${slotRarityNames[slot.rarity]}) - ${slot.effect}</option>
                         `).join('')}
                     </select>
                     <button onclick="equipSlot('${toolType}', ${i})" style="padding: 5px 12px; background-color: #4CAF50; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 0.9em;">
@@ -1391,7 +1463,7 @@ function equipSlot(toolType, slotIndex) {
     // 检查该插片是否已经在其他槽位装备
     const slotInfo = getSlotBaseAndRarity(slotFullName);
     const sameSlotExists = tool.slots.some(existingSlot => 
-        existingSlot && existingSlot.baseName === slotInfo.baseName
+        existingSlot && existingSlot.effect === slotInfo.effect
     );
     
     if (sameSlotExists) {
@@ -1404,7 +1476,8 @@ function equipSlot(toolType, slotIndex) {
     tool.slots[slotIndex] = {
         fullName: slotFullName,
         baseName: slotInfo.baseName,
-        rarity: slotInfo.rarity
+        rarity: slotInfo.rarity,
+        effect: slotInfo.effect
     };
     
     // 从背包中移除该插片
@@ -1428,8 +1501,43 @@ function unequipSlot(toolType, slotIndex) {
     const slot = tool.slots[slotIndex];
     if (!slot) return;
     
-    // 将插片返回背包
-    addSlotWithRarity(slot.baseName, slot.rarity);
+    // 直接使用原插片的fullName来添加插片，确保与原插片完全相同
+    // 检查背包是否已满
+    calculateBackpackStats();
+    const currentStackSize = gameData.backpack.currentStackSize;
+    let added = false;
+    
+    // 尝试添加到现有堆叠（考虑完整名称）
+    for (const [name, count] of Object.entries(gameData.backpack.items)) {
+        if (name === slot.fullName && count < currentStackSize) {
+            gameData.backpack.items[name]++;
+            added = true;
+            break;
+        }
+    }
+    
+    // 如果没有添加到现有堆叠，尝试创建新堆叠
+    if (!added) {
+        const itemCount = Object.keys(gameData.backpack.items).length;
+        if (itemCount < gameData.backpack.capacity) {
+            // 背包还有空槽位，直接创建新物品
+            gameData.backpack.items[slot.fullName] = (gameData.backpack.items[slot.fullName] || 0) + 1;
+            added = true;
+        } else {
+            // 背包满了，放入临时背包
+            addToTempBackpack(slot.fullName);
+            return;
+        }
+    }
+    
+    // 记录详细获得信息
+    ensureGainedInfoExists();
+    const slotInfo = getSlotBaseAndRarity(slot.fullName);
+    if (gameData.gainedInfo.detailed[slotInfo.baseName]) {
+        gameData.gainedInfo.detailed[slotInfo.baseName]++;
+    } else {
+        gameData.gainedInfo.detailed[slotInfo.baseName] = 1;
+    }
     
     // 清空槽位
     tool.slots[slotIndex] = null;
@@ -1439,6 +1547,13 @@ function unequipSlot(toolType, slotIndex) {
     updateBackpackDisplay();
     updateToolSlotEquipment();
     saveGame();
+}
+
+// 确认装备插片（已废弃，保留用于兼容）
+function confirmEquipSlots() {
+    // 提示用户使用新的装备方式
+    addMessage('装备功能已优化，请使用槽位旁边的装备按钮！');
+    updateMessages();
 }
 
 // 获取插片名称
@@ -1458,32 +1573,148 @@ function getSlotName(baseName) {
 }
 
 // 获取插片效果描述
-function getSlotEffectDescription(baseName, rarity) {
-    // 这里根据插片类型和稀有度生成具体的效果描述
+function getSlotEffectDescription(baseName, rarity, effect) {
+    // 这里根据插片类型、稀有度和实际效果生成具体的效果描述
     const slotType = getSlotType(`${baseName}_${rarity}`);
+    // 确保effect不为undefined且去除空格
+    effect = (effect || '').trim();
     
-    // 根据工具类型和稀有度获取具体效果描述
+    // 根据工具类型、稀有度和实际效果获取具体效果描述
     if (slotType === 'pickaxe') {
         // 采矿锄插片效果
-        switch (baseName) {
-            case 'pickaxeSlot':
-                return getPickaxeSlotEffect(rarity);
+        switch (effect) {
+            case '成品转化':
+                switch (rarity) {
+                    case 'common': return '成品转化：石矿、煤矿直接变成成品（石灰、煤炭）';
+                    case 'uncommon': return '成品转化：石矿、煤矿、银矿直接变成成品（石灰、煤炭、银质粉末）';
+                    case 'rare': return '成品转化：石矿、煤矿、银矿、白金矿、金矿直接变成成品（石灰、煤炭、银质粉末、白金粉末、金砖）';
+                    case 'epic': return '成品转化：石矿、煤矿、银矿、白金矿、金矿、水晶矿直接变成成品（石灰、煤炭、银质粉末、白金粉末、金砖、水晶簇），且产出翻倍';
+                    default: return '成品转化：根据稀有度不同随机某一种矿物直接变成成品';
+                }
+            case '连锁采矿':
+                switch (rarity) {
+                    case 'common': return '连锁采矿：获得上一个等级的矿物（不包括副产物），如果本次采集是最低级矿物则失效';
+                    case 'uncommon': return '连锁采矿：获得上一个等级的矿物（包括副产物），如果本次采集是最低级矿物则失效';
+                    case 'rare': return '连锁采矿：获得上一个等级的矿物（不包括副产物），和下一个等级的矿物（不包括副产物）。如果本次采集是最低级矿物则只获得下一等级矿物（不包括副产物）；如果本次采集的是最高级矿物则只获得上一级矿物（不包括副产物）';
+                    case 'epic': return '连锁采矿：获得上一个等级的矿物（包括副产物），和下一个等级的矿物（包括副产物）。如果本次采集是最低级矿物则只获得下一等级矿物（包括副产物）；如果本次采集的是最高级矿物则只获得上一级矿物（包括副产物），且当前采集矿物的副产品翻倍';
+                    default: return '连锁采矿：根据稀有度不同在采矿时同步获得相同数量的相邻的矿石';
+                }
+            case '金币经验':
+                switch (rarity) {
+                    case 'common': return '金币经验：获得1倍矿物价值金币基数的经验';
+                    case 'uncommon': return '金币经验：获得2倍矿物价值金币基数的经验';
+                    case 'rare': return '金币经验：获得4倍矿物价值金币基数的经验';
+                    case 'epic': return '金币经验：获得8倍矿物价值金币基数的经验，雇佣的矿工1分钟内所得物增加100%';
+                    default: return '金币经验：根据稀有度不同获得采集的矿物的价值金币基数倍率的经验';
+                }
+            case '燃料惊喜':
+                switch (rarity) {
+                    case 'common': return '燃料惊喜：获得总数5个（比例随机电池或者燃料）随机燃料';
+                    case 'uncommon': return '燃料惊喜：获得总数10个（比例随机电池或者燃料）随机燃料';
+                    case 'rare': return '燃料惊喜：获得总数20个（比例随机电池或者燃料）随机燃料';
+                    case 'epic': return '燃料惊喜：获得总数50个（比例随机电池或者燃料）随机燃料，且必定获得一个扎啤';
+                    default: return '燃料惊喜：根据稀有度不同获得随机燃料随机数量';
+                }
+            case '碎片回收':
+                switch (rarity) {
+                    case 'common': return '碎片回收：获得1个插片碎片';
+                    case 'uncommon': return '碎片回收：获得2个插片碎片';
+                    case 'rare': return '碎片回收：获得4个插片碎片';
+                    case 'epic': return '碎片回收：获得8个插片碎片，5%几率获得一个随机非传说级非碎片回收插片';
+                    default: return '碎片回收：根据稀有度不同获得不同数量的插片碎片';
+                }
             default:
                 return `${slotRarityNames[rarity]}采矿锄插片`;
         }
     } else if (slotType === 'cart') {
         // 矿车插片效果
-        switch (baseName) {
-            case 'cartSlot':
-                return getCartSlotEffect(rarity);
+        switch (effect) {
+            case '自动运输':
+                switch (rarity) {
+                    case 'common': return '自动运输：无燃料运行时间30秒冷却30秒';
+                    case 'uncommon': return '自动运输：无燃料运行时间60秒冷却25秒';
+                    case 'rare': return '自动运输：无燃料运行时间90秒冷却20秒';
+                    case 'epic': return '自动运输：无燃料运行时间180秒冷却15秒，且必出一个副产物';
+                    default: return '自动运输：根据稀有度不同获得不同时间的无燃料运行时间但有冷却';
+                }
+            case '运力翻倍':
+                switch (rarity) {
+                    case 'common': return '运力翻倍：当前采集的150%';
+                    case 'uncommon': return '运力翻倍：当前采集的200%';
+                    case 'rare': return '运力翻倍：当前采集的400%';
+                    case 'epic': return '运力翻倍：当前采集的800%，且不消耗所得矿物立即获得一次金币';
+                    default: return '运力翻倍：根据稀有度不同获得不同倍数矿物';
+                }
+            case '燃料暴击':
+                switch (rarity) {
+                    case 'common': return '燃料暴击：消耗燃料增加100%后，所得矿物数量乘以消耗燃料数量';
+                    case 'uncommon': return '燃料暴击：消耗燃料增加200%后，所得矿物数量乘以消耗燃料数量';
+                    case 'rare': return '燃料暴击：消耗燃料增加400%后，所得矿物数量乘以消耗燃料数量';
+                    case 'epic': return '燃料暴击：消耗燃料增加800%后，所得矿物数量乘以消耗燃料数量，且返还一个史诗级燃料暴击插片';
+                    default: return '燃料暴击：根据稀有度不同获得消耗燃料倍数矿物';
+                }
+            case '压缩燃料':
+                switch (rarity) {
+                    case 'common': return '压缩燃料：油箱上限加100%后，无消耗自动填满';
+                    case 'uncommon': return '压缩燃料：油箱上限加150%后，无消耗自动填满';
+                    case 'rare': return '压缩燃料：油箱上限加300%后，无消耗自动填满';
+                    case 'epic': return '压缩燃料：油箱上限加600%后，无消耗自动填满，且获得自动填满的燃料进入背包';
+                    default: return '压缩燃料：根据稀有度不同获得不同压缩倍数燃料';
+                }
+            case '现场收购':
+                switch (rarity) {
+                    case 'common': return '现场收购：现场出售产出矿物收益加100%';
+                    case 'uncommon': return '现场收购：现场出售产出矿物收益加150%';
+                    case 'rare': return '现场收购：现场出售产出矿物收益加200%';
+                    case 'epic': return '现场收购：现场出售产出矿物收益加400%，且5%几率获得一个随机的工具等级提升券';
+                    default: return '现场收购：根据稀有度不同获得不同概率直接收购矿物';
+                }
             default:
                 return `${slotRarityNames[rarity]}矿车插片`;
         }
     } else if (slotType === 'headlight') {
         // 头灯插片效果
-        switch (baseName) {
-            case 'headlightSlot':
-                return getHeadlightSlotEffect(rarity);
+        switch (effect) {
+            case '加强灯泡':
+                switch (rarity) {
+                    case 'common': return '加强灯泡：头灯数据加10%概率';
+                    case 'uncommon': return '加强灯泡：头灯数据加20%概率';
+                    case 'rare': return '加强灯泡：头灯数据加40%概率';
+                    case 'epic': return '加强灯泡：头灯数据加80%概率，且使获得的物品翻倍';
+                    default: return '加强灯泡：根据稀有度不同获得不同范围的照明';
+                }
+            case '电池优化':
+                switch (rarity) {
+                    case 'common': return '电池优化：头灯电池能量上限增加100%后无消耗自动填满';
+                    case 'uncommon': return '电池优化：头灯电池能量上限增加150%后无消耗自动填满';
+                    case 'rare': return '电池优化：头灯电池能量上限增加300%后无消耗自动填满';
+                    case 'epic': return '电池优化：头灯电池能量上限增加600%后无消耗自动填满，且获得自动填满的电池进入背包';
+                    default: return '电池优化：根据稀有度不同获得不同时间的电池续航';
+                }
+            case '副产物增强':
+                switch (rarity) {
+                    case 'common': return '副产物增强：10%获得下一级矿物的副产物几率';
+                    case 'uncommon': return '副产物增强：15%获得下一级矿物的副产物几率';
+                    case 'rare': return '副产物增强：30%获得下一级矿物的副产物几率';
+                    case 'epic': return '副产物增强：60%获得下一级矿物的副产物几率，且5%几率获得下两级的副产物';
+                    default: return '副产物增强：根据稀有度不同获得不同概率的副产物';
+                }
+            case '超载照明':
+                switch (rarity) {
+                    case 'common': return '超载照明：消耗电量增加100%后，所得矿物数量乘以消耗电量数量';
+                    case 'uncommon': return '超载照明：消耗电量增加200%后，所得矿物数量乘以消耗电量数量';
+                    case 'rare': return '超载照明：消耗电量增加400%后，所得矿物数量乘以消耗电量数量';
+                    case 'epic': return '超载照明：消耗电量增加800%后，所得矿物数量乘以消耗电量数量，且返还一个史诗级超载照明插片';
+                    default: return '超载照明：根据稀有度不同获得不同时间的超亮照明';
+                }
+            case '幸运磁铁':
+                switch (rarity) {
+                    case 'common': return '幸运磁铁：10%几率获得铁矿';
+                    case 'uncommon': return '幸运磁铁：20%几率获得钴矿';
+                    case 'rare': return '幸运磁铁：40%几率获得镍矿';
+                    case 'epic': return '幸运磁铁：80%几率获得铝矿，且必得一个磁铁';
+                    default: return '幸运磁铁：根据稀有度不同获得不同概率的磁铁效果';
+                }
             default:
                 return `${slotRarityNames[rarity]}头灯插片`;
         }
@@ -1494,33 +1725,163 @@ function getSlotEffectDescription(baseName, rarity) {
 
 // 获取采矿锄插片效果描述
 function getPickaxeSlotEffect(rarity) {
+    let itemConversionDesc = '';
+    let chainMiningDesc = '';
+    let goldExpDesc = '';
+    let fuelSurpriseDesc = '';
+    let fragmentRecoveryDesc = '';
+    
+    switch (rarity) {
+        case 'common':
+            itemConversionDesc = '石矿、煤矿直接变成成品（石灰、煤炭）';
+            chainMiningDesc = '获得上一个等级的矿物（不包括副产物），如果本次采集是最低级矿物则失效';
+            goldExpDesc = '获得1倍矿物价值金币基数的经验';
+            fuelSurpriseDesc = '获得总数5个（比例随机电池或者燃料）随机燃料';
+            fragmentRecoveryDesc = '获得1个插片碎片';
+            break;
+        case 'uncommon':
+            itemConversionDesc = '石矿、煤矿、银矿直接变成成品（石灰、煤炭、银质粉末）';
+            chainMiningDesc = '获得上一个等级的矿物（包括副产物），如果本次采集是最低级矿物则失效';
+            goldExpDesc = '获得2倍矿物价值金币基数的经验';
+            fuelSurpriseDesc = '获得总数10个（比例随机电池或者燃料）随机燃料';
+            fragmentRecoveryDesc = '获得2个插片碎片';
+            break;
+        case 'rare':
+            itemConversionDesc = '石矿、煤矿、银矿、白金矿、金矿直接变成成品（石灰、煤炭、银质粉末、白金粉末、金砖）';
+            chainMiningDesc = '获得上一个等级的矿物（不包括副产物），和下一个等级的矿物（不包括副产物）。如果本次采集是最低级矿物则只获得下一等级矿物（不包括副产物）；如果本次采集的是最高级矿物则只获得上一级矿物（不包括副产物）';
+            goldExpDesc = '获得4倍矿物价值金币基数的经验';
+            fuelSurpriseDesc = '获得总数20个（比例随机电池或者燃料）随机燃料';
+            fragmentRecoveryDesc = '获得4个插片碎片';
+            break;
+        case 'epic':
+            itemConversionDesc = '石矿、煤矿、银矿、白金矿、金矿、水晶矿直接变成成品（石灰、煤炭、银质粉末、白金粉末、金砖、水晶簇），且产出翻倍';
+            chainMiningDesc = '获得上一个等级的矿物（包括副产物），和下一个等级的矿物（包括副产物）。如果本次采集是最低级矿物则只获得下一等级矿物（包括副产物）；如果本次采集的是最高级矿物则只获得上一级矿物（包括副产物），且当前采集矿物的副产品翻倍';
+            goldExpDesc = '获得8倍矿物价值金币基数的经验，雇佣的矿工1分钟内所得物增加100%';
+            fuelSurpriseDesc = '获得总数50个（比例随机电池或者燃料）随机燃料，且必定获得一个扎啤';
+            fragmentRecoveryDesc = '获得8个插片碎片，5%几率获得一个随机非传说级非碎片回收插片';
+            break;
+    }
+    
     return `采矿锄插片效果：
-- 成品转化：根据稀有度不同随机某一种矿物直接变成成品
-- 连锁采矿：根据稀有度不同在采矿时同步获得相同数量的相邻的矿石
-- 金币经验：根据稀有度不同获得采集的矿物的价值金币基数倍率的经验
-- 燃料惊喜：根据稀有度不同获得随机燃料随机数量
-- 碎片回收：根据稀有度不同获得不同数量的插片碎片`;
+- 成品转化：${itemConversionDesc}
+- 连锁采矿：${chainMiningDesc}
+- 金币经验：${goldExpDesc}
+- 燃料惊喜：${fuelSurpriseDesc}
+- 碎片回收：${fragmentRecoveryDesc}`;
 }
 
 // 获取矿车插片效果描述
 function getCartSlotEffect(rarity) {
+    let autoTransportDesc = '';
+    let capacityDoubleDesc = '';
+    let fuelCritDesc = '';
+    let compressedFuelDesc = '';
+    let onSitePurchaseDesc = '';
+    
+    switch (rarity) {
+        case 'common':
+            autoTransportDesc = '无燃料运行时间30秒冷却30秒';
+            capacityDoubleDesc = '当前采集的150%';
+            fuelCritDesc = '消耗燃料增加100%后，所得矿物数量乘以消耗燃料数量';
+            compressedFuelDesc = '油箱上限加100%后，无消耗自动填满';
+            onSitePurchaseDesc = '现场出售产出矿物收益加100%';
+            break;
+        case 'uncommon':
+            autoTransportDesc = '无燃料运行时间60秒冷却25秒';
+            capacityDoubleDesc = '当前采集的200%';
+            fuelCritDesc = '消耗燃料增加200%后，所得矿物数量乘以消耗燃料数量';
+            compressedFuelDesc = '油箱上限加150%后，无消耗自动填满';
+            onSitePurchaseDesc = '现场出售产出矿物收益加150%';
+            break;
+        case 'rare':
+            autoTransportDesc = '无燃料运行时间90秒冷却20秒';
+            capacityDoubleDesc = '当前采集的400%';
+            fuelCritDesc = '消耗燃料增加400%后，所得矿物数量乘以消耗燃料数量';
+            compressedFuelDesc = '油箱上限加300%后，无消耗自动填满';
+            onSitePurchaseDesc = '现场出售产出矿物收益加200%';
+            break;
+        case 'epic':
+            autoTransportDesc = '无燃料运行时间180秒冷却15秒，且必出一个副产物';
+            capacityDoubleDesc = '当前采集的800%，且不消耗所得矿物立即获得一次金币';
+            fuelCritDesc = '消耗燃料增加800%后，所得矿物数量乘以消耗燃料数量，且返还一个史诗级燃料暴击插片';
+            compressedFuelDesc = '油箱上限加600%后，无消耗自动填满，且获得自动填满的燃料进入背包';
+            onSitePurchaseDesc = '现场出售产出矿物收益加400%，且5%几率获得一个随机的工具等级提升券';
+            break;
+    }
+    
     return `矿车插片效果：
-- 自动运输：根据稀有度不同获得不同时间的无燃料运行时间但有冷却
-- 运力翻倍：根据稀有度不同获得不同倍数矿物
-- 燃料暴击：根据稀有度不同获得消耗燃料倍数矿物
-- 压缩燃料：根据稀有度不同获得油箱上限加成
-- 现场收购：根据稀有度不同获得不同收益的现场出售金币`;
+- 自动运输：${autoTransportDesc}
+- 运力翻倍：${capacityDoubleDesc}
+- 燃料暴击：${fuelCritDesc}
+- 压缩燃料：${compressedFuelDesc}
+- 现场收购：${onSitePurchaseDesc}`;
 }
 
 // 获取头灯插片效果描述
 function getHeadlightSlotEffect(rarity) {
+    let strengthenBulbDesc = '';
+    let batteryOptimizationDesc = '';
+    let byproductEnhancementDesc = '';
+    let overloadLightingDesc = '';
+    let luckyMagnetDesc = '';
+    
+    switch (rarity) {
+        case 'common':
+            strengthenBulbDesc = '头灯数据加10%概率';
+            batteryOptimizationDesc = '头灯电池能量上限增加100%后无消耗自动填满';
+            byproductEnhancementDesc = '10%获得下一级矿物的副产物几率';
+            overloadLightingDesc = '消耗电量增加100%后，所得矿物数量乘以消耗电量数量';
+            luckyMagnetDesc = '10%几率获得铁矿';
+            break;
+        case 'uncommon':
+            strengthenBulbDesc = '头灯数据加20%概率';
+            batteryOptimizationDesc = '头灯电池能量上限增加150%后无消耗自动填满';
+            byproductEnhancementDesc = '15%获得下一级矿物的副产物几率';
+            overloadLightingDesc = '消耗电量增加200%后，所得矿物数量乘以消耗电量数量';
+            luckyMagnetDesc = '20%几率获得钴矿';
+            break;
+        case 'rare':
+            strengthenBulbDesc = '头灯数据加40%概率';
+            batteryOptimizationDesc = '头灯电池能量上限增加300%后无消耗自动填满';
+            byproductEnhancementDesc = '30%获得下一级矿物的副产物几率';
+            overloadLightingDesc = '消耗电量增加400%后，所得矿物数量乘以消耗电量数量';
+            luckyMagnetDesc = '40%几率获得镍矿';
+            break;
+        case 'epic':
+            strengthenBulbDesc = '头灯数据加80%概率，且使获得的物品翻倍';
+            batteryOptimizationDesc = '头灯电池能量上限增加600%后无消耗自动填满，且获得自动填满的电池进入背包';
+            byproductEnhancementDesc = '60%获得下一级矿物的副产物几率，且5%几率获得下两级的副产物';
+            overloadLightingDesc = '消耗电量增加800%后，所得矿物数量乘以消耗电量数量，且返还一个史诗级超载照明插片';
+            luckyMagnetDesc = '80%几率获得铝矿，且必得一个磁铁';
+            break;
+    }
+    
     return `头灯插片效果：
-- 加强灯泡：根据稀有度不同使头灯的基础功能加强
-- 电池优化：根据稀有度不同头灯电池能量上限增加
-- 副产物增强：根据稀有度不同增加下一级副产物几率
-- 超载照明：根据稀有度不同提高获得数量但增加消耗
-- 幸运磁铁：根据稀有度不同获得不同的磁铁材料`;
+- 加强灯泡：${strengthenBulbDesc}
+- 电池优化：${batteryOptimizationDesc}
+- 副产增强：${byproductEnhancementDesc}
+- 超载照明：${overloadLightingDesc}
+- 幸运磁铁：${luckyMagnetDesc}`;
 }
+
+// 中文效果名称到英文效果类型的映射
+const effectNameToTypeMap = {
+    '成品转化': 'itemConversion',
+    '连锁采矿': 'chainMining',
+    '金币经验': 'goldExp',
+    '燃料惊喜': 'fuelSurprise',
+    '碎片回收': 'fragmentRecovery',
+    '自动运输': 'autoTransport',
+    '运力翻倍': 'capacityDouble',
+    '燃料暴击': 'fuelCrit',
+    '压缩燃料': 'compressedFuel',
+    '现场收购': 'onSitePurchase',
+    '加强灯泡': 'strengthenBulb',
+    '电池优化': 'batteryOptimization',
+    '副产物增强': 'byproductEnhancement',
+    '超载照明': 'overloadLighting',
+    '幸运磁铁': 'luckyMagnet'
+};
 
 // 应用工具插片效果
 function applyToolSlotEffects(mineral, baseAmount) {
@@ -1551,25 +1912,21 @@ function applyToolSlotEffects(mineral, baseAmount) {
     ].filter(slot => slot !== null);
     
     allSlots.forEach(slot => {
+        // 根据插片的实际效果类型添加相应的效果
+        const effectType = effectNameToTypeMap[slot.effect] || slot.effect;
+        
+        // 检查效果类型是否存在于effects对象中
+        if (effects[effectType] !== undefined) {
+            effects[effectType].push({
+                rarity: slot.rarity,
+                effect: slot.effect
+            });
+        }
+        
+        // 对于采矿锄和矿车插片，增加采矿数量
         const slotType = getSlotType(slot.fullName);
-        switch (slotType) {
-            case 'pickaxe':
-                // 采矿锄插片效果
-                // 添加成品转化效果
-                effects.itemConversion.push({
-                    rarity: slot.rarity,
-                    effect: 'itemConversion'
-                });
-                // 简单实现：增加采矿数量
-                adjustedAmount += getSlotBonus(slot.rarity);
-                break;
-            case 'cart':
-                // 矿车插片效果
-                adjustedAmount += getSlotBonus(slot.rarity);
-                break;
-            case 'headlight':
-                // 头灯插片效果
-                break;
+        if (slotType === 'pickaxe' || slotType === 'cart') {
+            adjustedAmount += getSlotBonus(slot.rarity);
         }
     });
     
@@ -1788,6 +2145,9 @@ function combineSlots() {
             baseSlotName = slot1Info.baseName;
     }
     
+    // 获取插片稀有度数组
+    const slotRarities = window.slotRarities.map(rarity => rarity.id);
+    
     // 确定当前稀有度
     const currentRarityIndex = slotRarities.indexOf(slot1Info.rarity);
     
@@ -1808,8 +2168,12 @@ function combineSlots() {
     
     const newRarity = slotRarities[newRarityIndex];
     
+    // 随机选择原插片的效果之一作为新插片的效果
+    const possibleEffects = [slot1Info.effect, slot2Info.effect];
+    const randomEffect = possibleEffects[Math.floor(Math.random() * possibleEffects.length)];
+    
     // 添加合成的插片到背包
-    addSlotWithRarity(baseSlotName, newRarity);
+    addSlotWithRarity(baseSlotName, newRarity, randomEffect);
     
     // 获取插片中文名称
     const slotName = baseSlotName === 'toolSlot1' ? '基础工具插片' : 
@@ -1839,7 +2203,7 @@ function updateToolSlotInfo() {
     if (!toolSlotDetails) return;
     
     // 获取配方
-    const recipe = workshopRecipes[toolSlotType];
+    const recipe = slotCraftingRecipes[toolSlotType];
     
     if (recipe) {
         // 计算材料需求
@@ -2023,6 +2387,7 @@ function craftToolSlot() {
                 let craftingLevel = Math.min(6, Math.floor(gameData.workshop.itemsCrafted / 10) + 1);
                 
                 // 添加制作的物品到背包
+                const craftedSlots = [];
                 for (let i = 0; i < quantity; i++) {
                     // 根据合成等级决定插片稀有度
                     let rarity;
@@ -2048,9 +2413,36 @@ function craftToolSlot() {
                         }
                     }
                     
-                    addSlotWithRarity(toolSlotType, rarity);
+                    // 为新插片分配随机效果
+                    let effect = '';
+                    const slotType = getSlotType(`${toolSlotType}_${rarity}`);
+                    const possibleEffects = window.slotEffectNames[slotType] || [];
+                    
+                    if (possibleEffects.length > 0) {
+                        const randomIndex = Math.floor(Math.random() * possibleEffects.length);
+                        effect = possibleEffects[randomIndex];
+                    }
+                    
+                    // 获取稀有度中文名称
+                    let rarityName;
+                    switch (rarity) {
+                        case 'common': rarityName = '普通'; break;
+                        case 'uncommon': rarityName = '稀有'; break;
+                        case 'rare': rarityName = '史诗'; break;
+                        case 'epic': rarityName = '传说'; break;
+                        default: rarityName = rarity;
+                    }
+                    
+                    craftedSlots.push({ rarity: rarityName, effect: effect });
+                    addSlotWithRarity(toolSlotType, rarity, effect);
                 }
-                addMessage(`${quantity}个${toolSlotName}制作成功！制作合成等级: ${craftingLevel}`);
+                
+                // 显示制作成功信息，包括每个插片的稀有度和效果
+                let message = `${quantity}个${toolSlotName}制作成功！制作合成等级: ${craftingLevel}\n`;
+                craftedSlots.forEach((slot, index) => {
+                    message += `第${index + 1}个: ${slot.rarity}品质，效果: ${slot.effect}\n`;
+                });
+                addMessage(message);
                 
                 // 更新加工台状态
                 gameData.workshop.itemsCrafted += quantity;
@@ -2547,21 +2939,19 @@ function toggleMinersGuild() {
             if (!gameData.minersGuild.badgeSystem.currentLevel) gameData.minersGuild.badgeSystem.currentLevel = 0;
             if (!gameData.minersGuild.badgeSystem.maxLevel) gameData.minersGuild.badgeSystem.maxLevel = 10;
             
-            // 确保upgradeMaterials数组完整
-            if (!gameData.minersGuild.badgeSystem.upgradeMaterials || gameData.minersGuild.badgeSystem.upgradeMaterials.length !== 10) {
-                gameData.minersGuild.badgeSystem.upgradeMaterials = [
-                    { level: 1, materials: { '银质粉末': 100, '磁铁': 100 } },
-                    { level: 2, materials: { '银质粉末': 150, '磁铁': 150 } },
-                    { level: 3, materials: { '白金粉末': 200, '磁铁': 200 } },
-                    { level: 4, materials: { '白金粉末': 250, '磁铁': 250 } },
-                    { level: 5, materials: { '白金粉末': 250, '磁铁': 250, '金砖': 20 } },
-                    { level: 6, materials: { '金砖': 50, 'pickaxeTicket': 10, 'cartTicket': 10, 'headlightTicket': 10 } },
-                    { level: 7, materials: { '金砖': 100, 'pickaxeTicket': 50, 'cartTicket': 50, 'headlightTicket': 50 } },
-                    { level: 8, materials: { '水晶簇': 100, 'toolSlot1': 150 } },
-                    { level: 9, materials: { '水晶簇': 150, 'toolSlot1': 450 } },
-                    { level: 10, materials: { 'forgeDelegate': true, 'magicEquipment': true } }
-                ];
-            }
+            // 强制使用默认的升级材料配置
+            gameData.minersGuild.badgeSystem.upgradeMaterials = [
+                { level: 1, materials: { '银质粉末': 100, '磁铁': 100 } },
+                { level: 2, materials: { '银质粉末': 150, '磁铁': 150 } },
+                { level: 3, materials: { '白金粉末': 200, '磁铁': 200 } },
+                { level: 4, materials: { '白金粉末': 250, '磁铁': 250 } },
+                { level: 5, materials: { '白金粉末': 250, '磁铁': 250, '金砖': 20 } },
+                { level: 6, materials: { '金砖': 50, 'pickaxeTicket': 10, 'cartTicket': 10, 'headlightTicket': 10 } },
+                { level: 7, materials: { '金砖': 100, 'pickaxeTicket': 50, 'cartTicket': 50, 'headlightTicket': 50 } },
+                { level: 8, materials: { '水晶簇': 100, 'toolSlot1': 150 } },
+                { level: 9, materials: { '水晶簇': 150, 'toolSlot1': 450 } },
+                { level: 10, materials: { 'forgeDelegate': true, 'magicEquipment': true } }
+            ];
             
             // 确保efficiencyBonuses数组完整
             if (!gameData.minersGuild.badgeSystem.efficiencyBonuses || gameData.minersGuild.badgeSystem.efficiencyBonuses.length !== 11) {
@@ -2668,11 +3058,12 @@ function toggleMinersGuild() {
                                 let materialsHTML = '';
                                 if (upgradeData) {
                                     for (const [item, amount] of Object.entries(upgradeData.materials)) {
+                                        const materialName = materialNameMap[item] || item;
                                         const playerHas = item === '金币' ? gameData.player.gold : (gameData.backpack.items[item] || 0);
                                         const enough = playerHas >= amount;
                                         materialsHTML += `
                                             <div class="material-item">
-                                                <span class="material-name">${item}：</span>
+                                                <span class="material-name">${materialName}：</span>
                                                 <span class="material-amount ${enough ? 'enough' : 'not-enough'}">${playerHas}/${amount}</span>
                                             </div>
                                         `;
@@ -3377,21 +3768,35 @@ function createBeerDialoguePanel(minerName, dialogueOptions) {
 function mergeSameTypeItems() {
     const mergedItems = {};
     
-    // 遍历所有物品，合并同类型矿物
+    // 遍历所有物品，合并同类型矿物，但保留插片不变
     for (const [itemName, count] of Object.entries(gameData.backpack.items)) {
-        const baseName = itemName.split('_')[0];
-        if (!mergedItems[baseName]) {
-            mergedItems[baseName] = 0;
+        // 检查是否是插片（包含Slot或中文插片名称）
+        const isSlot = itemName.includes('Slot') || 
+                     itemName.includes('插片') ||
+                     itemName === 'toolSlot1' ||
+                     itemName === 'headlightSlot' ||
+                     itemName === 'cartSlot' ||
+                     itemName === 'pickaxeSlot';
+        
+        if (isSlot) {
+            // 插片不合并，直接保留原始名称
+            mergedItems[itemName] = (mergedItems[itemName] || 0) + count;
+        } else {
+            // 矿物合并，只保留基础名称
+            const baseName = itemName.split('_')[0];
+            if (!mergedItems[baseName]) {
+                mergedItems[baseName] = 0;
+            }
+            mergedItems[baseName] += count;
         }
-        mergedItems[baseName] += count;
     }
     
     // 清空原物品列表
     gameData.backpack.items = {};
     
     // 重新添加合并后的物品
-    for (const [baseName, totalCount] of Object.entries(mergedItems)) {
-        gameData.backpack.items[baseName] = totalCount;
+    for (const [name, totalCount] of Object.entries(mergedItems)) {
+        gameData.backpack.items[name] = totalCount;
     }
 }
 
@@ -4679,13 +5084,47 @@ function updateBackpackDisplay() {
         if (index < slots.length) {
             const slot = slots[index];
             slot.className = 'backpack-slot';
-            const displayName = itemName.split('_')[0];
-            slot.innerHTML = `
-                <div class="item-name">${displayName}</div>
-                <div class="item-count">${count}/${gameData.backpack.currentStackSize}</div>
-            `;
+            
+            // 解析物品名称，特别是插片
+            const slotInfo = getSlotBaseAndRarity(itemName);
+            const baseName = slotInfo.baseName;
+            const rarity = slotInfo.rarity || 'common';
+            const effect = slotInfo.effect || '';
+            
+            // 获取显示名称
+            let displayName;
+            if (baseName.includes('Slot')) {
+                displayName = getSlotName(baseName);
+            } else {
+                displayName = materialNameMap[baseName] || baseName;
+            }
+            
+            // 获取稀有度中文名称
+            let rarityName;
+            switch (rarity) {
+                case 'common': rarityName = '普通'; break;
+                case 'uncommon': rarityName = '稀有'; break;
+                case 'rare': rarityName = '史诗'; break;
+                case 'epic': rarityName = '传说'; break;
+                default: rarityName = rarity;
+            }
+            
+            // 检查是否是插片
+            if (baseName.includes('Slot')) {
+                slot.innerHTML = `
+                    <div class="item-name">${displayName}</div>
+                    <div class="item-rarity">${rarityName}</div>
+                    ${effect ? `<div class="item-effect">${effect}</div>` : ''}
+                    <div class="item-count">${count}/${gameData.backpack.currentStackSize}</div>
+                `;
+            } else {
+                slot.innerHTML = `
+                    <div class="item-name">${displayName}</div>
+                    <div class="item-count">${count}/${gameData.backpack.currentStackSize}</div>
+                `;
+            }
             // 添加点击事件监听器
-            slot.onclick = () => handleItemClick(itemName, displayName);
+            slot.onclick = () => handleItemClick(itemName, displayName, rarity, effect);
         }
     });
     document.getElementById('backpack-capacity').textContent = items.length;
@@ -4696,11 +5135,146 @@ function updateBackpackDisplay() {
 }
 
 // 处理背包物品点击
-function handleItemClick(itemName, displayName) {
+function handleItemClick(itemName, displayName, rarity, effect) {
     // 如果是扎啤，显示使用界面
     if (displayName === '扎啤') {
         showUseBeerDialog(itemName);
+    } else if (itemName.includes('Slot')) {
+        // 显示插片详细信息
+        showSlotDetails(itemName, displayName, rarity, effect);
     }
+}
+
+// 显示插片详细信息
+function showSlotDetails(itemName, displayName, rarity, effect) {
+    const parts = itemName.split('_');
+    const baseName = parts[0];
+    
+    // 获取插片类型
+    let slotType;
+    switch (baseName) {
+        case 'toolSlot1': slotType = 'base'; break;
+        case 'headlightSlot': slotType = 'headlight'; break;
+        case 'cartSlot': slotType = 'cart'; break;
+        case 'pickaxeSlot': slotType = 'pickaxe'; break;
+        default: slotType = 'base';
+    }
+    
+    // 获取稀有度中文名称
+    let rarityName;
+    switch (rarity) {
+        case 'common': rarityName = '普通'; break;
+        case 'uncommon': rarityName = '稀有'; break;
+        case 'rare': rarityName = '史诗'; break;
+        case 'epic': rarityName = '传说'; break;
+        default: rarityName = rarity;
+    }
+    
+    // 获取效果描述
+    const effectDescription = getSlotEffectDescription(baseName, rarity, effect);
+    
+    // 创建对话框
+    const panel = document.createElement('div');
+    panel.className = 'slot-details-overlay';
+    panel.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.7);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 1001;
+        animation: fadeIn 0.3s ease-in-out;
+    `;
+    
+    panel.innerHTML = `
+        <div class="slot-details-panel">
+            <div class="slot-details-header">
+                <h3>${displayName}</h3>
+                <button onclick="this.closest('.slot-details-overlay').remove()" style="padding: 5px 10px; background-color: #f44336; color: white; border: none; border-radius: 3px; cursor: pointer;">关闭</button>
+            </div>
+            <div class="slot-details-content">
+                <div class="slot-info-item">
+                    <span class="slot-info-label">稀有度:</span>
+                    <span class="slot-info-value">${rarityName}</span>
+                </div>
+                <div class="slot-info-item">
+                    <span class="slot-info-label">类型:</span>
+                    <span class="slot-info-value">${slotType === 'base' ? '基础' : slotType === 'headlight' ? '头灯' : slotType === 'cart' ? '矿车' : '采矿锄'}</span>
+                </div>
+                <div class="slot-info-item">
+                    <span class="slot-info-label">效果:</span>
+                    <span class="slot-info-value">${effect || '无'}</span>
+                </div>
+                <div class="slot-info-item">
+                    <span class="slot-info-label">效果描述:</span>
+                    <span class="slot-info-value">${effectDescription}</span>
+                </div>
+                <div class="slot-info-item">
+                    <span class="slot-info-label">描述:</span>
+                    <span class="slot-info-value">${slotType === 'base' ? '基础工具插片，用于徽章升级和制作各种工具插片' : slotType === 'headlight' ? '头灯专用插片，用于提升头灯性能' : slotType === 'cart' ? '矿车专用插片，用于提升矿车性能' : '采矿锄专用插片，用于提升采矿锄性能'}</span>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // 添加样式
+    const style = document.createElement('style');
+    style.textContent = `
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .slot-details-panel {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            width: 90%;
+            max-width: 500px;
+            animation: slideIn 0.3s ease-out;
+        }
+        .slot-details-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px;
+            background: linear-gradient(90deg, #2c3e50 0%, #34495e 100%);
+            color: white;
+            border-radius: 12px 12px 0 0;
+        }
+        .slot-details-header h3 {
+            margin: 0;
+            font-size: 1.5em;
+            font-weight: 600;
+        }
+        .slot-details-content {
+            padding: 20px;
+        }
+        .slot-info-item {
+            margin-bottom: 15px;
+            display: flex;
+            flex-direction: column;
+        }
+        .slot-info-label {
+            font-weight: 600;
+            margin-bottom: 5px;
+            color: #333;
+        }
+        .slot-info-value {
+            color: #666;
+            line-height: 1.4;
+        }
+    `;
+    
+    document.head.appendChild(style);
+    document.body.appendChild(panel);
+    
+    panel.addEventListener('click', (e) => {
+        if (e.target === panel) {
+            panel.remove();
+            document.head.removeChild(style);
+        }
+    });
 }
 
 // 显示使用扎啤的对话框
@@ -5281,56 +5855,6 @@ function completeMining(mineral) {
     if (!continuousMining) {
         gameData.miningCount[mineral.name] = (gameData.miningCount[mineral.name] || 0) + 1;
     }
-    // 应用金手套经验加成
-    const expWithBonus = applyGoldenGloveExpBonus(mineral.exp);
-    gameData.player.exp += expWithBonus;
-    
-    // 只有当工具经验值未满时才添加经验值
-    let pickaxeGainedExp = 0;
-    if (gameData.tools.pickaxe.level < 50) {
-        const pickaxeNextExp = gameData.tools.pickaxe.nextExp || 50;
-        if (gameData.tools.pickaxe.exp < pickaxeNextExp) {
-            const toolExpWithBonus = applyGoldenGloveExpBonus(mineral.exp);
-            gameData.tools.pickaxe.exp += toolExpWithBonus;
-            pickaxeGainedExp = toolExpWithBonus;
-        }
-    }
-    
-    let cartGainedExp = 0;
-    if (gameData.tools.cart.crafted && gameData.tools.cart.level < 50) {
-        const cartNextExp = gameData.tools.cart.nextExp || 50;
-        if (gameData.tools.cart.exp < cartNextExp) {
-            const toolExpWithBonus = applyGoldenGloveExpBonus(mineral.exp);
-            gameData.tools.cart.exp += toolExpWithBonus;
-            cartGainedExp = toolExpWithBonus;
-        }
-    }
-    
-    let headlightGainedExp = 0;
-    if (gameData.tools.headlight.crafted && gameData.tools.headlight.level < 50) {
-        const headlightNextExp = gameData.tools.headlight.nextExp || 50;
-        if (gameData.tools.headlight.exp < headlightNextExp) {
-            const toolExpWithBonus = applyGoldenGloveExpBonus(mineral.exp);
-            gameData.tools.headlight.exp += toolExpWithBonus;
-            headlightGainedExp = toolExpWithBonus;
-        }
-    }
-    
-    addGainedExp(expWithBonus);
-    checkLevelUp();
-    
-    // 为所有工作中的矿工添加经验（手动挖矿时）
-    // 只给分配到当前矿物的矿工添加经验
-    const workingMiners = gameData.minersGuild.miners.filter(miner => miner.working && miner.assignedMineral === mineral.name);
-    workingMiners.forEach(miner => {
-        if (miner.exp < miner.nextExp) {
-            const minerExpGain = Math.floor(expWithBonus * 0.5); // 矿工获得玩家经验的50%
-            miner.exp += minerExpGain;
-            if (miner.exp >= miner.nextExp) {
-                addMessage(`${miner.name} 的经验已满，等待升级！`);
-            }
-        }
-    });
     
     // 检查工具状态和消耗
     if (!gameData.tools.cart) gameData.tools.cart = { crafted: false, active: true, fuelType: 'coal', fuelCapacity: 50, currentFuel: 0 }; // fuelType: 'coal' 或 'fuel'
@@ -5342,64 +5866,75 @@ function completeMining(mineral) {
     
     let baseAmount = 1;
     if (gameData.tools.cart && gameData.tools.cart.crafted && gameData.tools.cart.active && !hasLostCartEffect) {
-        const fuelType = gameData.tools.cart.fuelType || 'coal';
+        // 检查自动运输是否激活
+        const autoTransportActive = gameData.tools.cart.autoTransport && gameData.tools.cart.autoTransport.active;
         
-        if (fuelType === 'coal') {
-            // 使用煤矿：直接消耗背包中的煤矿
-            if (hasEnoughItem('煤矿', 1)) {
-                consumeItem('煤矿', 1);
-                // 矿车每5级提升1个采矿数量
-                const cartBonus = Math.floor(gameData.tools.cart.level / 5);
-                baseAmount = 1 + cartBonus;
-            } else {
-                // 煤矿不足，自动停用矿车
-                gameData.tools.cart.active = false;
-                addMessage('煤矿不足，矿车已自动停止使用！请添加煤矿。');
-            }
+        if (autoTransportActive) {
+            // 自动运输激活，不消耗燃料
+            // 矿车每5级提升1个采矿数量
+            const cartBonus = Math.floor(gameData.tools.cart.level / 5);
+            baseAmount = 1 + cartBonus;
+            addMessage('自动运输激活中，矿车无燃料消耗！');
         } else {
-            // 使用高级燃料：消耗燃料舱中的燃料次数
-            if (gameData.tools.cart.optimized) {
-                // 检查燃料舱中的燃料是否足够
-                if (gameData.tools.cart.currentFuel > 0) {
-                    // 消耗1点燃料
-                    gameData.tools.cart.currentFuel -= 1;
-                    // 矿车每5级提升1个采矿数量，使用燃料时额外加5
-                    const cartBonus = Math.floor(gameData.tools.cart.level / 5) + 5;
+            const fuelType = gameData.tools.cart.fuelType || 'coal';
+            
+            if (fuelType === 'coal') {
+                // 使用煤矿：直接消耗背包中的煤矿
+                if (hasEnoughItem('煤矿', 1)) {
+                    consumeItem('煤矿', 1);
+                    // 矿车每5级提升1个采矿数量
+                    const cartBonus = Math.floor(gameData.tools.cart.level / 5);
                     baseAmount = 1 + cartBonus;
                 } else {
-                    // 燃料舱燃料不足，尝试从背包中自动添加燃料
-                    if (hasEnoughItem('燃料', 1)) {
-                        // 消耗背包中的燃料
-                        consumeItem('燃料', 1);
-                        // 添加50点燃料到燃料舱
-                        gameData.tools.cart.currentFuel = 50;
-                        // 消耗1点燃料用于本次采矿
+                    // 煤矿不足，自动停用矿车
+                    gameData.tools.cart.active = false;
+                    addMessage('煤矿不足，矿车已自动停止使用！请添加煤矿。');
+                }
+            } else {
+                // 使用高级燃料：消耗燃料舱中的燃料次数
+                if (gameData.tools.cart.optimized) {
+                    // 检查燃料舱中的燃料是否足够
+                    if (gameData.tools.cart.currentFuel > 0) {
+                        // 消耗1点燃料
                         gameData.tools.cart.currentFuel -= 1;
                         // 矿车每5级提升1个采矿数量，使用燃料时额外加5
                         const cartBonus = Math.floor(gameData.tools.cart.level / 5) + 5;
                         baseAmount = 1 + cartBonus;
-                        addMessage('燃料舱燃料不足，已自动从背包中添加燃料！');
                     } else {
-                        // 燃料不足，尝试切换到煤矿
-                        if (hasEnoughItem('煤矿', 1)) {
-                            // 切换到煤矿作为燃料
-                            gameData.tools.cart.fuelType = 'coal';
-                            consumeItem('煤矿', 1);
-                            // 矿车每5级提升1个采矿数量
-                            const cartBonus = Math.floor(gameData.tools.cart.level / 5);
+                        // 燃料舱燃料不足，尝试从背包中自动添加燃料
+                        if (hasEnoughItem('燃料', 1)) {
+                            // 消耗背包中的燃料
+                            consumeItem('燃料', 1);
+                            // 添加50点燃料到燃料舱
+                            gameData.tools.cart.currentFuel = 50;
+                            // 消耗1点燃料用于本次采矿
+                            gameData.tools.cart.currentFuel -= 1;
+                            // 矿车每5级提升1个采矿数量，使用燃料时额外加5
+                            const cartBonus = Math.floor(gameData.tools.cart.level / 5) + 5;
                             baseAmount = 1 + cartBonus;
-                            addMessage('燃料不足，已自动切换到煤矿作为燃料！');
+                            addMessage('燃料舱燃料不足，已自动从背包中添加燃料！');
                         } else {
-                            // 煤矿也不足，自动停用矿车
-                            gameData.tools.cart.active = false;
-                            addMessage('燃料和煤矿都不足，矿车已自动停止使用！请添加燃料或煤矿。');
+                            // 燃料不足，尝试切换到煤矿
+                            if (hasEnoughItem('煤矿', 1)) {
+                                // 切换到煤矿作为燃料
+                                gameData.tools.cart.fuelType = 'coal';
+                                consumeItem('煤矿', 1);
+                                // 矿车每5级提升1个采矿数量
+                                const cartBonus = Math.floor(gameData.tools.cart.level / 5);
+                                baseAmount = 1 + cartBonus;
+                                addMessage('燃料不足，已自动切换到煤矿作为燃料！');
+                            } else {
+                                // 煤矿也不足，自动停用矿车
+                                gameData.tools.cart.active = false;
+                                addMessage('燃料和煤矿都不足，矿车已自动停止使用！请添加燃料或煤矿。');
+                            }
                         }
                     }
+                } else {
+                    // 矿车未优化，自动停用矿车
+                    gameData.tools.cart.active = false;
+                    addMessage('矿车尚未优化！需要先在加工台优化矿车才能使用高级燃料。');
                 }
-            } else {
-                // 矿车未优化，自动停用矿车
-                gameData.tools.cart.active = false;
-                addMessage('矿车尚未优化！需要先在加工台优化矿车才能使用高级燃料。');
             }
         }
     }
@@ -5407,6 +5942,104 @@ function completeMining(mineral) {
     // 应用插片效果
     const slotEffects = applyToolSlotEffects(mineral, baseAmount);
     baseAmount = slotEffects.adjustedAmount;
+    
+    // 应用金币经验效果
+    let goldExpMultiplier = 1;
+    let minerBonus = false;
+    if (slotEffects && slotEffects.effects.goldExp.length > 0) {
+        // 获取最高稀有度的金币经验效果
+        const highestRarityEffect = slotEffects.effects.goldExp.sort((a, b) => {
+            const rarityOrder = { 'common': 0, 'uncommon': 1, 'rare': 2, 'epic': 3 };
+            return rarityOrder[b.rarity] - rarityOrder[a.rarity];
+        })[0];
+        
+        // 根据稀有度计算金币经验加成倍数
+        switch (highestRarityEffect.rarity) {
+            case 'common':
+                goldExpMultiplier = 1; // 1倍矿物价值金币基数的经验
+                break;
+            case 'uncommon':
+                goldExpMultiplier = 2; // 2倍矿物价值金币基数的经验
+                break;
+            case 'rare':
+                goldExpMultiplier = 4; // 4倍矿物价值金币基数的经验
+                break;
+            case 'epic':
+                goldExpMultiplier = 8; // 8倍矿物价值金币基数的经验
+                minerBonus = true; // 雇佣的矿工1分钟内所得物增加100%
+                break;
+        }
+    }
+    
+    // 计算基础金币
+    const baseGold = mineral.price || 0;
+    
+    // 计算最终的经验（基于矿物价值金币基数的倍数）
+    const expFromGold = Math.floor(baseGold * goldExpMultiplier);
+    
+    // 应用金手套经验加成
+    const finalExp = applyGoldenGloveExpBonus(expFromGold);
+    
+    // 添加经验
+    gameData.player.exp += finalExp;
+    
+    // 添加金币（基础金币）
+    gameData.player.gold += baseGold;
+    
+    // 只有当工具经验值未满时才添加经验值
+    let pickaxeGainedExp = 0;
+    if (gameData.tools.pickaxe.level < 50) {
+        const pickaxeNextExp = gameData.tools.pickaxe.nextExp || 50;
+        if (gameData.tools.pickaxe.exp < pickaxeNextExp) {
+            const toolExp = applyGoldenGloveExpBonus(expFromGold);
+            gameData.tools.pickaxe.exp += toolExp;
+            pickaxeGainedExp = toolExp;
+        }
+    }
+    
+    let cartGainedExp = 0;
+    if (gameData.tools.cart.crafted && gameData.tools.cart.level < 50) {
+        const cartNextExp = gameData.tools.cart.nextExp || 50;
+        if (gameData.tools.cart.exp < cartNextExp) {
+            const toolExp = applyGoldenGloveExpBonus(expFromGold);
+            gameData.tools.cart.exp += toolExp;
+            cartGainedExp = toolExp;
+        }
+    }
+    
+    let headlightGainedExp = 0;
+    if (gameData.tools.headlight.crafted && gameData.tools.headlight.level < 50) {
+        const headlightNextExp = gameData.tools.headlight.nextExp || 50;
+        if (gameData.tools.headlight.exp < headlightNextExp) {
+            const toolExp = applyGoldenGloveExpBonus(expFromGold);
+            gameData.tools.headlight.exp += toolExp;
+            headlightGainedExp = toolExp;
+        }
+    }
+    
+    // 处理矿工加成
+    if (minerBonus) {
+        // 这里可以添加矿工1分钟内所得物增加100%的逻辑
+        addMessage('传说级金币经验效果触发！雇佣的矿工1分钟内所得物增加100%！');
+        updateMessages();
+    }
+    
+    addGainedExp(finalExp);
+    addGainedGold(baseGold);
+    checkLevelUp();
+    
+    // 为所有工作中的矿工添加经验（手动挖矿时）
+    // 只给分配到当前矿物的矿工添加经验
+    const workingMiners = gameData.minersGuild.miners.filter(miner => miner.working && miner.assignedMineral === mineral.name);
+    workingMiners.forEach(miner => {
+        if (miner.exp < miner.nextExp) {
+            const minerExpGain = Math.floor(finalExp * 0.5); // 矿工获得玩家经验的50%
+            miner.exp += minerExpGain;
+            if (miner.exp >= miner.nextExp) {
+                addMessage(`${miner.name} 的经验已满，等待升级！`);
+            }
+        }
+    });
     
     // 添加基础矿物
     for (let i = 0; i < baseAmount; i++) {
@@ -5454,6 +6087,889 @@ function completeMining(mineral) {
                     gameData.tools.headlight.exp += bonusExp;
                 }
             }
+        }
+    }
+    
+    // 应用连锁采矿效果
+    if (slotEffects && slotEffects.effects.chainMining.length > 0) {
+        // 获取最高稀有度的连锁采矿效果
+        const highestRarityEffect = slotEffects.effects.chainMining.sort((a, b) => {
+            const rarityOrder = { 'common': 0, 'uncommon': 1, 'rare': 2, 'epic': 3 };
+            return rarityOrder[b.rarity] - rarityOrder[a.rarity];
+        })[0];
+        
+        // 矿物等级顺序
+        const mineralLevels = ['石矿', '煤矿', '铁矿', '铜矿', '钴矿', '镍矿', '银矿', '白金矿', '金矿', '水晶矿'];
+        const currentIndex = mineralLevels.indexOf(mineral.name);
+        
+        // 根据稀有度实现连锁采矿效果
+        let chainMinerals = [];
+        let includeByproducts = false;
+        let doubleByproducts = false;
+        
+        switch (highestRarityEffect.rarity) {
+            case 'common':
+                // 普通（白色）：获得上一个等级的矿物（不包括副产物），如果本次采集是最低级矿物则失效
+                if (currentIndex > 0) {
+                    chainMinerals.push(mineralLevels[currentIndex - 1]);
+                }
+                includeByproducts = false;
+                break;
+            case 'uncommon':
+                // 稀有（蓝色）：获得上一个等级的矿物（包括副产物），如果本次采集是最低级矿物则失效
+                if (currentIndex > 0) {
+                    chainMinerals.push(mineralLevels[currentIndex - 1]);
+                }
+                includeByproducts = true;
+                break;
+            case 'rare':
+                // 史诗（紫色）：获得上一个等级的矿物（不包括副产物），和下一个等级的矿物（不包括副产物）
+                // 如果本次采集是最低级矿物则只获得下一等级矿物（不包括副产物）
+                // 如果本次采集的是最高级矿物则只获得上一级矿物（不包括副产物）
+                if (currentIndex === 0) {
+                    // 最低级矿物，只获得下一等级
+                    if (currentIndex < mineralLevels.length - 1) {
+                        chainMinerals.push(mineralLevels[currentIndex + 1]);
+                    }
+                } else if (currentIndex === mineralLevels.length - 1) {
+                    // 最高级矿物，只获得上一等级
+                    if (currentIndex > 0) {
+                        chainMinerals.push(mineralLevels[currentIndex - 1]);
+                    }
+                } else {
+                    // 中间等级矿物，获得上一等级和下一等级
+                    if (currentIndex > 0) {
+                        chainMinerals.push(mineralLevels[currentIndex - 1]);
+                    }
+                    if (currentIndex < mineralLevels.length - 1) {
+                        chainMinerals.push(mineralLevels[currentIndex + 1]);
+                    }
+                }
+                includeByproducts = false;
+                break;
+            case 'epic':
+                // 传说（橙色）：获得上一个等级的矿物（包括副产物），和下一个等级的矿物（包括副产物）
+                // 如果本次采集是最低级矿物则只获得下一等级矿物（包括副产物）
+                // 如果本次采集的是最高级矿物则只获得上一级矿物（包括副产物）
+                // 且当前采集矿物的副产品翻倍
+                if (currentIndex === 0) {
+                    // 最低级矿物，只获得下一等级
+                    if (currentIndex < mineralLevels.length - 1) {
+                        chainMinerals.push(mineralLevels[currentIndex + 1]);
+                    }
+                } else if (currentIndex === mineralLevels.length - 1) {
+                    // 最高级矿物，只获得上一等级
+                    if (currentIndex > 0) {
+                        chainMinerals.push(mineralLevels[currentIndex - 1]);
+                    }
+                } else {
+                    // 中间等级矿物，获得上一等级和下一等级
+                    if (currentIndex > 0) {
+                        chainMinerals.push(mineralLevels[currentIndex - 1]);
+                    }
+                    if (currentIndex < mineralLevels.length - 1) {
+                        chainMinerals.push(mineralLevels[currentIndex + 1]);
+                    }
+                }
+                includeByproducts = true;
+                doubleByproducts = true;
+                break;
+        }
+        
+        // 处理连锁采矿获得的矿物
+        if (chainMinerals.length > 0) {
+            // 显示连锁采矿触发的消息
+            addMessage(`连锁采矿触发！额外获得了 ${chainMinerals.length} 种矿物！`);
+            
+            chainMinerals.forEach(chainMineralName => {
+                // 应用成品转化效果
+                let finalItem = chainMineralName;
+                if (slotEffects && slotEffects.effects.itemConversion.length > 0) {
+                    finalItem = convertMineralToFinishedProduct(chainMineralName, highestRarityEffect.rarity);
+                }
+                
+                // 添加连锁采矿获得的矿物
+                addToBackpack(finalItem);
+                addGainedMineral();
+                
+                // 为连锁采矿获得的矿物添加经验
+                const chainMineral = minerals.find(m => m.name === chainMineralName);
+                if (chainMineral) {
+                    // 应用金手套经验加成
+                    const bonusExp = applyGoldenGloveExpBonus(chainMineral.exp);
+                    gameData.player.exp += bonusExp;
+                    addGainedExp(bonusExp);
+                    
+                    // 只有当工具经验值未满时才添加经验值
+                    if (gameData.tools.pickaxe.level < 50) {
+                        const pickaxeNextExp = gameData.tools.pickaxe.nextExp || 50;
+                        if (gameData.tools.pickaxe.exp < pickaxeNextExp) {
+                            gameData.tools.pickaxe.exp += bonusExp;
+                        }
+                    }
+                    
+                    if (gameData.tools.cart && gameData.tools.cart.level < 50) {
+                        const cartNextExp = gameData.tools.cart.nextExp || 50;
+                        if (gameData.tools.cart.exp < cartNextExp) {
+                            gameData.tools.cart.exp += bonusExp;
+                        }
+                    }
+                    
+                    if (gameData.tools.headlight && gameData.tools.headlight.level < 50) {
+                        const headlightNextExp = gameData.tools.headlight.nextExp || 50;
+                        if (gameData.tools.headlight.exp < headlightNextExp) {
+                            gameData.tools.headlight.exp += bonusExp;
+                        }
+                    }
+                }
+            });
+            
+            // 处理副产品翻倍效果
+            if (doubleByproducts) {
+                // 这里可以添加副产品翻倍的逻辑
+                addMessage('传说级连锁采矿触发！当前采集矿物的副产品翻倍！');
+            }
+            
+            updateMessages();
+        }
+    }
+    
+    // 应用燃料惊喜效果
+    if (slotEffects && slotEffects.effects.fuelSurprise.length > 0) {
+        // 获取最高稀有度的燃料惊喜效果
+        const highestRarityEffect = slotEffects.effects.fuelSurprise.sort((a, b) => {
+            const rarityOrder = { 'common': 0, 'uncommon': 1, 'rare': 2, 'epic': 3 };
+            return rarityOrder[b.rarity] - rarityOrder[a.rarity];
+        })[0];
+        
+        // 根据稀有度计算燃料数量
+        let fuelCount = 0;
+        switch (highestRarityEffect.rarity) {
+            case 'common':
+                fuelCount = 5; // 普通（白色）：获得总数5个
+                break;
+            case 'uncommon':
+                fuelCount = 10; // 稀有（蓝色）：获得总数10个
+                break;
+            case 'rare':
+                fuelCount = 20; // 史诗（紫色）：获得总数20个
+                break;
+            case 'epic':
+                fuelCount = 50; // 传说（橙色）：获得总数50个
+                break;
+        }
+        
+        // 随机分配电池和燃料的数量
+        const fuelTypes = ['电池', '燃料'];
+        let batteryCount = 0;
+        let fuelItemCount = 0;
+        
+        for (let i = 0; i < fuelCount; i++) {
+            if (Math.random() < 0.5) {
+                batteryCount++;
+            } else {
+                fuelItemCount++;
+            }
+        }
+        
+        // 添加燃料到背包
+        if (batteryCount > 0) {
+            addToBackpack('电池', batteryCount);
+        }
+        if (fuelItemCount > 0) {
+            addToBackpack('燃料', fuelItemCount);
+        }
+        
+        // 传说级额外获得一个扎啤
+        if (highestRarityEffect.rarity === 'epic') {
+            addToBackpack('扎啤', 1);
+            addMessage('传说级燃料惊喜效果触发！额外获得了一个扎啤！');
+        }
+        
+        // 显示燃料惊喜触发的消息
+        addMessage(`燃料惊喜效果触发！获得了 ${batteryCount} 个电池和 ${fuelItemCount} 个燃料！`);
+        updateMessages();
+    }
+    
+    // 应用碎片回收效果
+    if (slotEffects && slotEffects.effects.fragmentRecovery.length > 0) {
+        // 获取最高稀有度的碎片回收效果
+        const highestRarityEffect = slotEffects.effects.fragmentRecovery.sort((a, b) => {
+            const rarityOrder = { 'common': 0, 'uncommon': 1, 'rare': 2, 'epic': 3 };
+            return rarityOrder[b.rarity] - rarityOrder[a.rarity];
+        })[0];
+        
+        // 根据稀有度计算碎片数量
+        let fragmentCount = 0;
+        switch (highestRarityEffect.rarity) {
+            case 'common':
+                fragmentCount = 1; // 普通（白色）：获得1个插片碎片
+                break;
+            case 'uncommon':
+                fragmentCount = 2; // 稀有（蓝色）：获得2个插片碎片
+                break;
+            case 'rare':
+                fragmentCount = 4; // 史诗（紫色）：获得4个插片碎片
+                break;
+            case 'epic':
+                fragmentCount = 8; // 传说（橙色）：获得8个插片碎片
+                break;
+        }
+        
+        // 添加碎片到背包
+        addToBackpack('工具插片碎片', fragmentCount);
+        
+        // 传说级额外获得一个随机非传说级非碎片回收插片
+        if (highestRarityEffect.rarity === 'epic' && Math.random() < 0.05) {
+            // 这里可以添加获得随机非传说级非碎片回收插片的逻辑
+            addMessage('传说级碎片回收效果触发！额外获得了一个随机插片！');
+        }
+        
+        // 显示碎片回收触发的消息
+        addMessage(`碎片回收效果触发！获得了 ${fragmentCount} 个工具插片碎片！`);
+        updateMessages();
+    }
+    
+    // 应用自动运输效果
+    if (slotEffects && slotEffects.effects.autoTransport.length > 0) {
+        // 获取最高稀有度的自动运输效果
+        const highestRarityEffect = slotEffects.effects.autoTransport.sort((a, b) => {
+            const rarityOrder = { 'common': 0, 'uncommon': 1, 'rare': 2, 'epic': 3 };
+            return rarityOrder[b.rarity] - rarityOrder[a.rarity];
+        })[0];
+        
+        // 根据稀有度设置无燃料运行时间和冷却时间
+        let runTime = 0;
+        let coolDownTime = 0;
+        switch (highestRarityEffect.rarity) {
+            case 'common':
+                runTime = 30; // 普通（白色）：无燃料运行时间30秒
+                coolDownTime = 30; // 冷却30秒
+                break;
+            case 'uncommon':
+                runTime = 60; // 稀有（蓝色）：无燃料运行时间60秒
+                coolDownTime = 25; // 冷却25秒
+                break;
+            case 'rare':
+                runTime = 90; // 史诗（紫色）：无燃料运行时间90秒
+                coolDownTime = 20; // 冷却20秒
+                break;
+            case 'epic':
+                runTime = 180; // 传说（橙色）：无燃料运行时间180秒
+                coolDownTime = 15; // 冷却15秒
+                break;
+        }
+        
+        // 处理自动运输效果
+        if (!gameData.tools.cart.autoTransport) {
+            gameData.tools.cart.autoTransport = {
+                active: false,
+                runTime: runTime,
+                coolDownTime: coolDownTime,
+                remainingTime: 0,
+                coolDownRemaining: 0,
+                lastUpdate: Date.now()
+            };
+        }
+        
+        // 更新自动运输状态
+        const now = Date.now();
+        const timeElapsed = (now - gameData.tools.cart.autoTransport.lastUpdate) / 1000;
+        gameData.tools.cart.autoTransport.lastUpdate = now;
+        
+        if (gameData.tools.cart.autoTransport.active) {
+            // 自动运输激活中
+            gameData.tools.cart.autoTransport.remainingTime -= timeElapsed;
+            if (gameData.tools.cart.autoTransport.remainingTime <= 0) {
+                // 自动运输时间结束，进入冷却
+                gameData.tools.cart.autoTransport.active = false;
+                gameData.tools.cart.autoTransport.coolDownRemaining = coolDownTime;
+                addMessage('自动运输效果结束，进入冷却期！');
+                updateMessages();
+            }
+        } else if (gameData.tools.cart.autoTransport.coolDownRemaining > 0) {
+            // 冷却中
+            gameData.tools.cart.autoTransport.coolDownRemaining -= timeElapsed;
+            if (gameData.tools.cart.autoTransport.coolDownRemaining <= 0) {
+                // 冷却结束，可以重新激活
+                gameData.tools.cart.autoTransport.coolDownRemaining = 0;
+                addMessage('自动运输冷却结束，可以重新激活！');
+                updateMessages();
+            }
+        } else {
+            // 可以激活自动运输
+            gameData.tools.cart.autoTransport.active = true;
+            gameData.tools.cart.autoTransport.remainingTime = runTime;
+            addMessage(`自动运输效果激活！无燃料运行时间 ${runTime} 秒！`);
+            
+            // 传说级额外效果：必出一个副产物
+            if (highestRarityEffect.rarity === 'epic') {
+                addMessage('传说级自动运输效果触发！必出一个副产物！');
+            }
+            
+            updateMessages();
+        }
+        
+        // 保存游戏状态
+        saveGame();
+    }
+    
+    // 应用运力翻倍效果
+    if (slotEffects && slotEffects.effects.capacityDouble.length > 0) {
+        // 获取最高稀有度的运力翻倍效果
+        const highestRarityEffect = slotEffects.effects.capacityDouble.sort((a, b) => {
+            const rarityOrder = { 'common': 0, 'uncommon': 1, 'rare': 2, 'epic': 3 };
+            return rarityOrder[b.rarity] - rarityOrder[a.rarity];
+        })[0];
+        
+        // 根据稀有度计算运力翻倍倍数
+        let capacityMultiplier = 1;
+        switch (highestRarityEffect.rarity) {
+            case 'common':
+                capacityMultiplier = 1.5; // 普通（白色）：当前采集的150%
+                break;
+            case 'uncommon':
+                capacityMultiplier = 2; // 稀有（蓝色）：当前采集的200%
+                break;
+            case 'rare':
+                capacityMultiplier = 4; // 史诗（紫色）：当前采集的400%
+                break;
+            case 'epic':
+                capacityMultiplier = 8; // 传说（橙色）：当前采集的800%
+                break;
+        }
+        
+        // 计算额外获得的矿物数量
+        const additionalAmount = Math.floor(baseAmount * (capacityMultiplier - 1));
+        
+        // 添加额外的矿物到背包
+        for (let i = 0; i < additionalAmount; i++) {
+            let finalItem = mineral.name;
+            
+            // 应用成品转化效果
+            if (slotEffects && slotEffects.effects.itemConversion.length > 0) {
+                // 获取最高稀有度的成品转化效果
+                const highestConversionEffect = slotEffects.effects.itemConversion.sort((a, b) => {
+                    const rarityOrder = { 'common': 0, 'uncommon': 1, 'rare': 2, 'epic': 3 };
+                    return rarityOrder[b.rarity] - rarityOrder[a.rarity];
+                })[0];
+                
+                finalItem = convertMineralToFinishedProduct(mineral.name, highestConversionEffect.rarity);
+            }
+            
+            addToBackpack(finalItem);
+            addGainedMineral();
+            
+            // 为额外获得的矿物添加经验
+            // 应用金手套经验加成
+            const bonusExp = applyGoldenGloveExpBonus(mineral.exp);
+            gameData.player.exp += bonusExp;
+            addGainedExp(bonusExp);
+            
+            // 只有当工具经验值未满时才添加经验值
+            if (gameData.tools.pickaxe.level < 50) {
+                const pickaxeNextExp = gameData.tools.pickaxe.nextExp || 50;
+                if (gameData.tools.pickaxe.exp < pickaxeNextExp) {
+                    gameData.tools.pickaxe.exp += bonusExp;
+                }
+            }
+            
+            if (gameData.tools.cart && gameData.tools.cart.level < 50) {
+                const cartNextExp = gameData.tools.cart.nextExp || 50;
+                if (gameData.tools.cart.exp < cartNextExp) {
+                    gameData.tools.cart.exp += bonusExp;
+                }
+            }
+            
+            if (gameData.tools.headlight && gameData.tools.headlight.level < 50) {
+                const headlightNextExp = gameData.tools.headlight.nextExp || 50;
+                if (gameData.tools.headlight.exp < headlightNextExp) {
+                    gameData.tools.headlight.exp += bonusExp;
+                }
+            }
+        }
+        
+        // 传说级额外效果：不消耗所得矿物立即获得一次金币
+        if (highestRarityEffect.rarity === 'epic') {
+            // 计算金币数量（基于矿物价值）
+            const goldAmount = Math.floor((mineral.price || 0) * baseAmount);
+            gameData.player.gold += goldAmount;
+            addMessage(`传说级运力翻倍效果触发！立即获得 ${goldAmount} 金币！`);
+        }
+        
+        // 显示运力翻倍触发的消息
+        addMessage(`运力翻倍效果触发！获得了 ${additionalAmount} 个额外矿物！`);
+        updateMessages();
+    }
+    
+    // 应用燃料暴击效果
+    if (slotEffects && slotEffects.effects.fuelCrit.length > 0) {
+        // 检查自动运输是否激活（燃料暴击与自动运输冲突）
+        const autoTransportActive = gameData.tools.cart.autoTransport && gameData.tools.cart.autoTransport.active;
+        if (!autoTransportActive) {
+            // 获取最高稀有度的燃料暴击效果
+            const highestRarityEffect = slotEffects.effects.fuelCrit.sort((a, b) => {
+                const rarityOrder = { 'common': 0, 'uncommon': 1, 'rare': 2, 'epic': 3 };
+                return rarityOrder[b.rarity] - rarityOrder[a.rarity];
+            })[0];
+            
+            // 根据稀有度计算燃料消耗倍数
+            let fuelMultiplier = 1;
+            switch (highestRarityEffect.rarity) {
+                case 'common':
+                    fuelMultiplier = 2; // 普通（白色）：消耗燃料增加100%
+                    break;
+                case 'uncommon':
+                    fuelMultiplier = 3; // 稀有（蓝色）：消耗燃料增加200%
+                    break;
+                case 'rare':
+                    fuelMultiplier = 5; // 史诗（紫色）：消耗燃料增加400%
+                    break;
+                case 'epic':
+                    fuelMultiplier = 9; // 传说（橙色）：消耗燃料增加800%
+                    break;
+            }
+            
+            // 检查燃料是否足够
+            const fuelType = gameData.tools.cart.fuelType || 'coal';
+            let fuelEnough = false;
+            let fuelConsumed = 0;
+            
+            if (fuelType === 'coal') {
+                // 使用煤矿
+                if (hasEnoughItem('煤矿', fuelMultiplier)) {
+                    consumeItem('煤矿', fuelMultiplier);
+                    fuelEnough = true;
+                    fuelConsumed = fuelMultiplier;
+                }
+            } else {
+                // 使用高级燃料
+                if (gameData.tools.cart.optimized && gameData.tools.cart.currentFuel >= fuelMultiplier) {
+                    gameData.tools.cart.currentFuel -= fuelMultiplier;
+                    fuelEnough = true;
+                    fuelConsumed = fuelMultiplier;
+                }
+            }
+            
+            if (fuelEnough) {
+                // 计算额外获得的矿物数量
+                const additionalAmount = Math.floor(baseAmount * (fuelConsumed - 1));
+                
+                // 添加额外的矿物到背包
+                for (let i = 0; i < additionalAmount; i++) {
+                    let finalItem = mineral.name;
+                    
+                    // 应用成品转化效果
+                    if (slotEffects && slotEffects.effects.itemConversion.length > 0) {
+                        // 获取最高稀有度的成品转化效果
+                        const highestConversionEffect = slotEffects.effects.itemConversion.sort((a, b) => {
+                            const rarityOrder = { 'common': 0, 'uncommon': 1, 'rare': 2, 'epic': 3 };
+                            return rarityOrder[b.rarity] - rarityOrder[a.rarity];
+                        })[0];
+                        
+                        finalItem = convertMineralToFinishedProduct(mineral.name, highestConversionEffect.rarity);
+                    }
+                    
+                    addToBackpack(finalItem);
+                    addGainedMineral();
+                    
+                    // 为额外获得的矿物添加经验
+                    // 应用金手套经验加成
+                    const bonusExp = applyGoldenGloveExpBonus(mineral.exp);
+                    gameData.player.exp += bonusExp;
+                    addGainedExp(bonusExp);
+                    
+                    // 只有当工具经验值未满时才添加经验值
+                    if (gameData.tools.pickaxe.level < 50) {
+                        const pickaxeNextExp = gameData.tools.pickaxe.nextExp || 50;
+                        if (gameData.tools.pickaxe.exp < pickaxeNextExp) {
+                            gameData.tools.pickaxe.exp += bonusExp;
+                        }
+                    }
+                    
+                    if (gameData.tools.cart && gameData.tools.cart.level < 50) {
+                        const cartNextExp = gameData.tools.cart.nextExp || 50;
+                        if (gameData.tools.cart.exp < cartNextExp) {
+                            gameData.tools.cart.exp += bonusExp;
+                        }
+                    }
+                    
+                    if (gameData.tools.headlight && gameData.tools.headlight.level < 50) {
+                        const headlightNextExp = gameData.tools.headlight.nextExp || 50;
+                        if (gameData.tools.headlight.exp < headlightNextExp) {
+                            gameData.tools.headlight.exp += bonusExp;
+                        }
+                    }
+                }
+                
+                // 传说级额外效果：返还一个史诗级燃料暴击插片
+                if (highestRarityEffect.rarity === 'epic') {
+                    // 这里可以添加返还一个史诗级燃料暴击插片的逻辑
+                    addMessage('传说级燃料暴击效果触发！返还一个史诗级燃料暴击插片！');
+                }
+                
+                // 显示燃料暴击触发的消息
+                addMessage(`燃料暴击效果触发！消耗 ${fuelConsumed} 个燃料，获得了 ${additionalAmount} 个额外矿物！`);
+                updateMessages();
+            }
+        }
+    }
+    
+    // 应用压缩燃料效果
+    if (slotEffects && slotEffects.effects.compressedFuel.length > 0) {
+        // 获取最高稀有度的压缩燃料效果
+        const highestRarityEffect = slotEffects.effects.compressedFuel.sort((a, b) => {
+            const rarityOrder = { 'common': 0, 'uncommon': 1, 'rare': 2, 'epic': 3 };
+            return rarityOrder[b.rarity] - rarityOrder[a.rarity];
+        })[0];
+        
+        // 根据稀有度计算油箱上限加成
+        let capacityMultiplier = 1;
+        switch (highestRarityEffect.rarity) {
+            case 'common':
+                capacityMultiplier = 2; // 普通（白色）：油箱上限加100%
+                break;
+            case 'uncommon':
+                capacityMultiplier = 2.5; // 稀有（蓝色）：油箱上限加150%
+                break;
+            case 'rare':
+                capacityMultiplier = 4; // 史诗（紫色）：油箱上限加300%
+                break;
+            case 'epic':
+                capacityMultiplier = 7; // 传说（橙色）：油箱上限加600%
+                break;
+        }
+        
+        // 设置油箱上限
+        const baseCapacity = 50; // 基础油箱容量
+        gameData.tools.cart.fuelCapacity = Math.floor(baseCapacity * capacityMultiplier);
+        
+        // 无消耗自动填满燃料
+        gameData.tools.cart.currentFuel = gameData.tools.cart.fuelCapacity;
+        
+        // 传说级额外效果：获得自动填满的燃料进入背包
+        if (highestRarityEffect.rarity === 'epic') {
+            // 添加燃料到背包
+            addToBackpack('燃料', gameData.tools.cart.fuelCapacity);
+            addMessage(`传说级压缩燃料效果触发！获得 ${gameData.tools.cart.fuelCapacity} 个燃料！`);
+        }
+        
+        // 显示压缩燃料触发的消息
+        addMessage(`压缩燃料效果触发！油箱上限提升到 ${gameData.tools.cart.fuelCapacity}，并自动填满燃料！`);
+        updateMessages();
+        
+        // 保存游戏状态
+        saveGame();
+    }
+    
+    // 应用现场收购效果
+    if (slotEffects && slotEffects.effects.onSitePurchase.length > 0) {
+        // 获取最高稀有度的现场收购效果
+        const highestRarityEffect = slotEffects.effects.onSitePurchase.sort((a, b) => {
+            const rarityOrder = { 'common': 0, 'uncommon': 1, 'rare': 2, 'epic': 3 };
+            return rarityOrder[b.rarity] - rarityOrder[a.rarity];
+        })[0];
+        
+        // 根据稀有度计算现场出售收益加成
+        let profitMultiplier = 1;
+        switch (highestRarityEffect.rarity) {
+            case 'common':
+                profitMultiplier = 2; // 普通（白色）：现场出售产出矿物收益加100%
+                break;
+            case 'uncommon':
+                profitMultiplier = 2.5; // 稀有（蓝色）：现场出售产出矿物收益加150%
+                break;
+            case 'rare':
+                profitMultiplier = 3; // 史诗（紫色）：现场出售产出矿物收益加200%
+                break;
+            case 'epic':
+                profitMultiplier = 5; // 传说（橙色）：现场出售产出矿物收益加400%
+                break;
+        }
+        
+        // 计算额外获得的金币
+        const baseGold = (mineral.price || 0) * baseAmount;
+        const additionalGold = Math.floor(baseGold * (profitMultiplier - 1));
+        
+        // 添加额外的金币
+        gameData.player.gold += additionalGold;
+        
+        // 传说级额外效果：5%几率获得一个随机的工具等级提升券
+        if (highestRarityEffect.rarity === 'epic' && Math.random() < 0.05) {
+            // 这里可以添加获得一个随机的工具等级提升券的逻辑
+            addMessage('传说级现场收购效果触发！获得一个随机的工具等级提升券！');
+        }
+        
+        // 显示现场收购触发的消息
+        addMessage(`现场收购效果触发！额外获得 ${additionalGold} 金币！`);
+        updateMessages();
+    }
+    
+    // 应用电池优化效果
+    if (slotEffects && slotEffects.effects.batteryOptimization.length > 0) {
+        // 获取最高稀有度的电池优化效果
+        const highestRarityEffect = slotEffects.effects.batteryOptimization.sort((a, b) => {
+            const rarityOrder = { 'common': 0, 'uncommon': 1, 'rare': 2, 'epic': 3 };
+            return rarityOrder[b.rarity] - rarityOrder[a.rarity];
+        })[0];
+        
+        // 根据稀有度计算电池能量上限加成
+        let capacityMultiplier = 1;
+        switch (highestRarityEffect.rarity) {
+            case 'common':
+                capacityMultiplier = 2; // 普通（白色）：头灯电池能量上限增加100%
+                break;
+            case 'uncommon':
+                capacityMultiplier = 2.5; // 稀有（蓝色）：头灯电池能量上限增加150%
+                break;
+            case 'rare':
+                capacityMultiplier = 4; // 史诗（紫色）：头灯电池能量上限增加300%
+                break;
+            case 'epic':
+                capacityMultiplier = 7; // 传说（橙色）：头灯电池能量上限增加600%
+                break;
+        }
+        
+        // 设置头灯电池能量上限
+        const baseBatteryCapacity = 300; // 基础电池容量（秒）
+        gameData.tools.headlight.batteryCapacity = Math.floor(baseBatteryCapacity * capacityMultiplier);
+        
+        // 无消耗自动填满电池
+        gameData.tools.headlight.batteryEnergy = gameData.tools.headlight.batteryCapacity;
+        
+        // 传说级额外效果：获得自动填满的电池进入背包
+        if (highestRarityEffect.rarity === 'epic') {
+            // 计算获得的电池数量（每300秒能量对应1个电池）
+            const batteryCount = Math.floor(gameData.tools.headlight.batteryCapacity / 300);
+            if (batteryCount > 0) {
+                addToBackpack('电池', batteryCount);
+                addMessage(`传说级电池优化效果触发！获得 ${batteryCount} 个电池！`);
+            }
+        }
+        
+        // 显示电池优化触发的消息
+        addMessage(`电池优化效果触发！头灯电池能量上限提升到 ${gameData.tools.headlight.batteryCapacity} 秒，并自动填满电池！`);
+        updateMessages();
+        
+        // 保存游戏状态
+        saveGame();
+    }
+    
+    // 应用副产增强效果
+    if (slotEffects && slotEffects.effects.byproductEnhancement.length > 0) {
+        // 获取最高稀有度的副产增强效果
+        const highestRarityEffect = slotEffects.effects.byproductEnhancement.sort((a, b) => {
+            const rarityOrder = { 'common': 0, 'uncommon': 1, 'rare': 2, 'epic': 3 };
+            return rarityOrder[b.rarity] - rarityOrder[a.rarity];
+        })[0];
+        
+        // 根据稀有度计算下一级副产物几率
+        let nextLevelByproductChance = 0;
+        switch (highestRarityEffect.rarity) {
+            case 'common':
+                nextLevelByproductChance = 0.1; // 普通（白色）：10%获得下一级矿物的副产物几率
+                break;
+            case 'uncommon':
+                nextLevelByproductChance = 0.15; // 稀有（蓝色）：15%获得下一级矿物的副产物几率
+                break;
+            case 'rare':
+                nextLevelByproductChance = 0.3; // 史诗（紫色）：30%获得下一级矿物的副产物几率
+                break;
+            case 'epic':
+                nextLevelByproductChance = 0.6; // 传说（橙色）：60%获得下一级矿物的副产物几率
+                break;
+        }
+        
+        // 矿物等级顺序
+        const mineralLevels = ['石矿', '煤矿', '铁矿', '铜矿', '钴矿', '镍矿', '银矿', '白金矿', '金矿', '水晶矿'];
+        const currentIndex = mineralLevels.indexOf(mineral.name);
+        
+        // 处理下一级矿物的副产物
+        if (currentIndex < mineralLevels.length - 1) {
+            const nextLevelMineral = mineralLevels[currentIndex + 1];
+            const nextLevelMineralData = minerals.find(m => m.name === nextLevelMineral);
+            
+            if (nextLevelMineralData && nextLevelMineralData.drops) {
+                // 尝试获得下一级矿物的副产物
+                if (Math.random() < nextLevelByproductChance) {
+                    nextLevelMineralData.drops.forEach(drop => {
+                        addToBackpack(drop.name);
+                        addMessage(`副产增强效果触发！获得了 ${drop.name}（来自下一级矿物 ${nextLevelMineral}）！`);
+                    });
+                    updateMessages();
+                }
+            }
+        }
+        
+        // 传说级额外效果：5%几率获得下两级的副产物
+        if (highestRarityEffect.rarity === 'epic' && currentIndex < mineralLevels.length - 2) {
+            if (Math.random() < 0.05) {
+                const nextNextLevelMineral = mineralLevels[currentIndex + 2];
+                const nextNextLevelMineralData = minerals.find(m => m.name === nextNextLevelMineral);
+                
+                if (nextNextLevelMineralData && nextNextLevelMineralData.drops) {
+                    nextNextLevelMineralData.drops.forEach(drop => {
+                        addToBackpack(drop.name);
+                        addMessage(`传说级副产增强效果触发！获得了 ${drop.name}（来自下两级矿物 ${nextNextLevelMineral}）！`);
+                    });
+                    updateMessages();
+                }
+            }
+        }
+    }
+    
+    // 应用超载照明效果
+    if (slotEffects && slotEffects.effects.overloadLighting.length > 0) {
+        // 获取最高稀有度的超载照明效果
+        const highestRarityEffect = slotEffects.effects.overloadLighting.sort((a, b) => {
+            const rarityOrder = { 'common': 0, 'uncommon': 1, 'rare': 2, 'epic': 3 };
+            return rarityOrder[b.rarity] - rarityOrder[a.rarity];
+        })[0];
+        
+        // 根据稀有度计算电量消耗倍数
+        let energyMultiplier = 1;
+        switch (highestRarityEffect.rarity) {
+            case 'common':
+                energyMultiplier = 2; // 普通（白色）：消耗电量增加100%
+                break;
+            case 'uncommon':
+                energyMultiplier = 3; // 稀有（蓝色）：消耗电量增加200%
+                break;
+            case 'rare':
+                energyMultiplier = 5; // 史诗（紫色）：消耗电量增加400%
+                break;
+            case 'epic':
+                energyMultiplier = 9; // 传说（橙色）：消耗电量增加800%
+                break;
+        }
+        
+        // 检查电池能量是否足够
+        let energyEnough = false;
+        let energyConsumed = 0;
+        
+        if (gameData.tools.headlight && gameData.tools.headlight.batteryEnergy >= energyMultiplier) {
+            // 消耗电池能量
+            gameData.tools.headlight.batteryEnergy -= energyMultiplier;
+            energyEnough = true;
+            energyConsumed = energyMultiplier;
+        } else if (hasEnoughItem('电池', 1)) {
+            // 电池能量不足，尝试从背包中自动添加电池
+            consumeItem('电池', 1);
+            // 添加300秒能量到电池仓
+            gameData.tools.headlight.batteryEnergy = 300;
+            // 消耗相应的能量
+            gameData.tools.headlight.batteryEnergy -= energyMultiplier;
+            energyEnough = true;
+            energyConsumed = energyMultiplier;
+            addMessage('电池能量不足，已自动从背包中添加电池！');
+        }
+        
+        if (energyEnough) {
+            // 计算额外获得的矿物数量
+            const additionalAmount = Math.floor(baseAmount * (energyConsumed - 1));
+            
+            // 添加额外的矿物到背包
+            for (let i = 0; i < additionalAmount; i++) {
+                let finalItem = mineral.name;
+                
+                // 应用成品转化效果
+                if (slotEffects && slotEffects.effects.itemConversion.length > 0) {
+                    // 获取最高稀有度的成品转化效果
+                    const highestConversionEffect = slotEffects.effects.itemConversion.sort((a, b) => {
+                        const rarityOrder = { 'common': 0, 'uncommon': 1, 'rare': 2, 'epic': 3 };
+                        return rarityOrder[b.rarity] - rarityOrder[a.rarity];
+                    })[0];
+                    
+                    finalItem = convertMineralToFinishedProduct(mineral.name, highestConversionEffect.rarity);
+                }
+                
+                addToBackpack(finalItem);
+                addGainedMineral();
+                
+                // 为额外获得的矿物添加经验
+                // 应用金手套经验加成
+                const bonusExp = applyGoldenGloveExpBonus(mineral.exp);
+                gameData.player.exp += bonusExp;
+                addGainedExp(bonusExp);
+                
+                // 只有当工具经验值未满时才添加经验值
+                if (gameData.tools.pickaxe.level < 50) {
+                    const pickaxeNextExp = gameData.tools.pickaxe.nextExp || 50;
+                    if (gameData.tools.pickaxe.exp < pickaxeNextExp) {
+                        gameData.tools.pickaxe.exp += bonusExp;
+                    }
+                }
+                
+                if (gameData.tools.cart && gameData.tools.cart.level < 50) {
+                    const cartNextExp = gameData.tools.cart.nextExp || 50;
+                    if (gameData.tools.cart.exp < cartNextExp) {
+                        gameData.tools.cart.exp += bonusExp;
+                    }
+                }
+                
+                if (gameData.tools.headlight && gameData.tools.headlight.level < 50) {
+                    const headlightNextExp = gameData.tools.headlight.nextExp || 50;
+                    if (gameData.tools.headlight.exp < headlightNextExp) {
+                        gameData.tools.headlight.exp += bonusExp;
+                    }
+                }
+            }
+            
+            // 传说级额外效果：返还一个史诗级超载照明插片
+            if (highestRarityEffect.rarity === 'epic') {
+                // 添加史诗级超载照明插片到背包
+                addSlotWithRarity('headlightSlot', 'epic');
+                addMessage('传说级超载照明效果触发！返还一个史诗级超载照明插片！');
+            }
+            
+            // 显示超载照明触发的消息
+            addMessage(`超载照明效果触发！消耗 ${energyConsumed} 点电量，获得了 ${additionalAmount} 个额外矿物！`);
+            updateMessages();
+        }
+    }
+    
+    // 应用幸运磁铁效果
+    if (slotEffects && slotEffects.effects.luckyMagnet.length > 0) {
+        // 获取最高稀有度的幸运磁铁效果
+        const highestRarityEffect = slotEffects.effects.luckyMagnet.sort((a, b) => {
+            const rarityOrder = { 'common': 0, 'uncommon': 1, 'rare': 2, 'epic': 3 };
+            return rarityOrder[b.rarity] - rarityOrder[a.rarity];
+        })[0];
+        
+        // 根据稀有度计算获得磁铁材料的几率和类型
+        let magnetChance = 0;
+        let magnetMaterial = '';
+        switch (highestRarityEffect.rarity) {
+            case 'common':
+                magnetChance = 0.1; // 普通（白色）：10%几率获得铁矿
+                magnetMaterial = '铁矿';
+                break;
+            case 'uncommon':
+                magnetChance = 0.2; // 稀有（蓝色）：20%几率获得钴矿
+                magnetMaterial = '钴矿';
+                break;
+            case 'rare':
+                magnetChance = 0.4; // 史诗（紫色）：40%几率获得镍矿
+                magnetMaterial = '镍矿';
+                break;
+            case 'epic':
+                magnetChance = 0.8; // 传说（橙色）：80%几率获得铝矿
+                magnetMaterial = '铝矿';
+                break;
+        }
+        
+        // 尝试获得磁铁材料
+        if (Math.random() < magnetChance) {
+            addToBackpack(magnetMaterial);
+            addMessage(`幸运磁铁效果触发！获得了 ${magnetMaterial}！`);
+            updateMessages();
+        }
+        
+        // 传说级额外效果：必得一个磁铁
+        if (highestRarityEffect.rarity === 'epic') {
+            addToBackpack('磁铁');
+            addMessage('传说级幸运磁铁效果触发！必得一个磁铁！');
+            updateMessages();
         }
     }
     
@@ -5518,7 +7034,39 @@ function completeMining(mineral) {
         }
         
         // 计算高一级矿物发现几率
-        const higherLevelChance = 0.1 + (gameData.tools.headlight.level * 0.01);
+        let higherLevelChance = 0.1 + (gameData.tools.headlight.level * 0.01);
+        
+        // 应用加强灯泡效果
+        let strengthenBulbMultiplier = 1;
+        let doubleItems = false;
+        if (slotEffects && slotEffects.effects.strengthenBulb.length > 0) {
+            // 获取最高稀有度的加强灯泡效果
+            const highestRarityEffect = slotEffects.effects.strengthenBulb.sort((a, b) => {
+                const rarityOrder = { 'common': 0, 'uncommon': 1, 'rare': 2, 'epic': 3 };
+                return rarityOrder[b.rarity] - rarityOrder[a.rarity];
+            })[0];
+            
+            // 根据稀有度计算加强灯泡效果
+            switch (highestRarityEffect.rarity) {
+                case 'common':
+                    strengthenBulbMultiplier = 1.1; // 普通（白色）：头灯数据加10%概率
+                    break;
+                case 'uncommon':
+                    strengthenBulbMultiplier = 1.2; // 稀有（蓝色）：头灯数据加20%概率
+                    break;
+                case 'rare':
+                    strengthenBulbMultiplier = 1.4; // 史诗（紫色）：头灯数据加40%概率
+                    break;
+                case 'epic':
+                    strengthenBulbMultiplier = 1.8; // 传说（橙色）：头灯数据加80%概率
+                    doubleItems = true; // 传说级：使获得的物品翻倍
+                    break;
+            }
+            
+            // 应用加强灯泡效果
+            higherLevelChance *= strengthenBulbMultiplier;
+        }
+        
         if (Math.random() < higherLevelChance) {
             // 生成高一级矿物
             const mineralLevels = ['石矿', '煤矿', '铁矿', '铜矿', '钴矿', '镍矿', '银矿', '白金矿', '金矿', '水晶矿'];
@@ -5526,7 +7074,13 @@ function completeMining(mineral) {
             if (currentIndex < mineralLevels.length - 1) {
                 const higherMineral = mineralLevels[currentIndex + 1];
                 // 根据燃料类型决定高一级矿物的数量
-                const higherAmount = fuelType === 'battery' ? 5 : Math.floor(Math.random() * 2) + 1;
+                let higherAmount = fuelType === 'battery' ? 5 : Math.floor(Math.random() * 2) + 1;
+                
+                // 传说级加强灯泡效果：使获得的物品翻倍
+                if (doubleItems) {
+                    higherAmount *= 2;
+                }
+                
                 for (let i = 0; i < higherAmount; i++) {
                     addToBackpack(higherMineral);
                     addGainedMineral();
@@ -5562,6 +7116,15 @@ function completeMining(mineral) {
                     }
                 }
                 addMessage(`头灯效果：发现了 ${higherMineral}×${higherAmount}！`);
+                
+                // 显示加强灯泡效果触发的消息
+                if (slotEffects && slotEffects.effects.strengthenBulb.length > 0) {
+                    addMessage('加强灯泡效果触发！头灯效率提升！');
+                    if (doubleItems) {
+                        addMessage('传说级加强灯泡效果触发！获得的物品翻倍！');
+                    }
+                    updateMessages();
+                }
             }
         }
     }
@@ -5670,7 +7233,7 @@ function completeMining(mineral) {
             }
         });
     }
-    const miningMessage = generateMiningMessage(mineral, obtainedDrops, headlightGoldConsumed, totalExp);
+    const miningMessage = generateMiningMessage(mineral, obtainedDrops, headlightGoldConsumed, totalExp, baseAmount);
     addMessage(miningMessage);
     updateUI();
     updateBackpackDisplay();
@@ -5980,6 +7543,7 @@ function updateBadgeUI() {
                 materialsHTML = `<div class="upgrade-materials"><h5>升级所需材料：</h5>`;
                 for (const [item, amount] of normalMaterials) {
                     let playerHas = 0;
+                    const materialName = materialNameMap[item] || item;
                     
                     if (item === '金币') {
                         playerHas = gameData.player.gold;
@@ -5995,7 +7559,7 @@ function updateBadgeUI() {
                     const enough = playerHas >= amount;
                     materialsHTML += `
                         <div class="material-item">
-                            <span class="material-name">${item}：</span>
+                            <span class="material-name">${materialName}：</span>
                             <span class="material-amount ${enough ? 'enough' : 'not-enough'}">${playerHas}/${amount}</span>
                         </div>
                     `;
@@ -6306,6 +7870,35 @@ function checkLevelUp() {
             gameData.tools.headlight.exp = gameData.tools.headlight.nextExp;
         }
     }
+}
+
+// 显示获得的金币
+function addGainedGold(amount) {
+    if (amount <= 0) return;
+    
+    // 实现添加金币的显示效果
+    const gainedGoldElement = document.createElement('div');
+    gainedGoldElement.className = 'gained-gold';
+    gainedGoldElement.textContent = `+${amount} 金币`;
+    gainedGoldElement.style.position = 'fixed';
+    gainedGoldElement.style.top = '50%';
+    gainedGoldElement.style.left = '50%';
+    gainedGoldElement.style.transform = 'translate(-50%, -50%)';
+    gainedGoldElement.style.backgroundColor = 'rgba(255, 215, 0, 0.8)';
+    gainedGoldElement.style.color = 'black';
+    gainedGoldElement.style.padding = '10px 20px';
+    gainedGoldElement.style.borderRadius = '5px';
+    gainedGoldElement.style.zIndex = '10000';
+    gainedGoldElement.style.fontWeight = 'bold';
+    gainedGoldElement.style.animation = 'fadeOut 2s ease-out forwards';
+    document.body.appendChild(gainedGoldElement);
+    
+    // 2秒后移除元素
+    setTimeout(() => {
+        if (gainedGoldElement.parentNode) {
+            gainedGoldElement.parentNode.removeChild(gainedGoldElement);
+        }
+    }, 2000);
 }
 
 function getToolDescription() {
@@ -6782,9 +8375,10 @@ function addToTempBackpack(itemName, amount = 1) {
     for (let i = 0; i < amount; i++) {
         let added = false;
         const itemsCopy = { ...gameData.tempBackpack.items };
+        const targetBaseName = itemName.split('_')[0];
         for (const [name, count] of Object.entries(itemsCopy)) {
-            const baseName = name.split('_')[0];
-            if (baseName === itemName) {
+            const existingBaseName = name.split('_')[0];
+            if (existingBaseName === targetBaseName) {
                 gameData.tempBackpack.items[name]++;
                 added = true;
                 break;
@@ -6800,7 +8394,7 @@ function addToTempBackpack(itemName, amount = 1) {
             gameData.tempBackpack.items[newItemName] = 1;
         }
     }
-    addMessage(`背包已满，${itemName}已放入临时背包！`);
+    addMessage(`背包已满，${itemName.split('_')[0]}已放入临时背包！`);
     updateTempBackpackDisplay();
 }
 
@@ -7025,7 +8619,8 @@ function showItemTotals() {
     }
     let html = '<h3>物品总数</h3><div class="totals-list">';
     for (const [name, count] of Object.entries(items)) {
-        html += `<div class="total-item">${name}: ${count}</div>`;
+        const displayName = materialNameMap[name] || name;
+        html += `<div class="total-item">${displayName}: ${count}</div>`;
     }
     html += '</div>';
     totalsDiv.innerHTML = html;
@@ -7181,7 +8776,7 @@ function updateMessages() {
     });
 }
 
-function generateMiningMessage(mineral, drops, headlightGoldConsumed = false, totalExp = null) {
+function generateMiningMessage(mineral, drops, headlightGoldConsumed = false, totalExp = null, totalAmount = null) {
     let message = '恭喜获得：';
     
     // 检查是否有走丢的矿车效果
@@ -7191,24 +8786,35 @@ function generateMiningMessage(mineral, drops, headlightGoldConsumed = false, to
     let baseAmount = 1;
     let cartBonus = 0;
     let cartConsume = 0;
-    if (gameData.tools.cart && gameData.tools.cart.crafted && gameData.tools.cart.active && !hasLostCartEffect) {
-        const fuelType = gameData.tools.cart.fuelType || 'coal';
-        // 检查燃料数量
-        if (fuelType === 'coal' && hasEnoughItem('煤矿', 1)) {
-            // 矿车每5级提升1个采矿数量
-            cartBonus = Math.floor(gameData.tools.cart.level / 5);
-            cartConsume = 1; // 矿车消耗1煤矿
-        } else if (fuelType === 'fuel' && gameData.tools.cart.currentFuel > 0) {
-            // 矿车每5级提升1个采矿数量，使用燃料时额外加5
-            cartBonus = Math.floor(gameData.tools.cart.level / 5) + 5;
-            cartConsume = 1; // 矿车消耗1燃料
+    
+    let finalTotalAmount;
+    
+    // 如果没有提供总数量，则重新计算
+    if (totalAmount === null) {
+        if (gameData.tools.cart && gameData.tools.cart.crafted && gameData.tools.cart.active && !hasLostCartEffect) {
+            const fuelType = gameData.tools.cart.fuelType || 'coal';
+            // 检查燃料数量
+            if (fuelType === 'coal' && hasEnoughItem('煤矿', 1)) {
+                // 矿车每5级提升1个采矿数量
+                cartBonus = Math.floor(gameData.tools.cart.level / 5);
+                cartConsume = 1; // 矿车消耗1煤矿
+            } else if (fuelType === 'fuel' && gameData.tools.cart.currentFuel > 0) {
+                // 矿车每5级提升1个采矿数量，使用燃料时额外加5
+                cartBonus = Math.floor(gameData.tools.cart.level / 5) + 5;
+                cartConsume = 1; // 矿车消耗1燃料
+            }
         }
+        finalTotalAmount = baseAmount + cartBonus;
+    } else {
+        // 使用提供的总数量
+        finalTotalAmount = totalAmount;
+        cartBonus = finalTotalAmount - baseAmount;
+        cartConsume = 1; // 如果有矿车加成，说明矿车消耗了燃料
     }
-    const totalAmount = baseAmount + cartBonus;
     
     // 显示矿物数量，包括加成说明
     if (cartBonus > 0) {
-        message += `${mineral.name}*${totalAmount}（基础*${baseAmount}+矿车*${cartBonus}）, `;
+        message += `${mineral.name}*${finalTotalAmount}（基础*${baseAmount}+矿车*${cartBonus}）, `;
         if (cartConsume > 0) {
             const fuelType = gameData.tools.cart.fuelType || 'coal';
             message += `${fuelType === 'coal' ? '煤矿' : '燃料剩余次数'}-${cartConsume}（矿车消耗）, `;
@@ -9206,19 +10812,22 @@ function ensureGameDataIntegrity() {
             pickaxe: {
                 level: 0,
                 exp: 0,
-                nextExp: 50
+                nextExp: 50,
+                slots: []
             },
             cart: {
                 crafted: false,
                 level: 0,
                 exp: 0,
-                nextExp: 50
+                nextExp: 50,
+                slots: []
             },
             headlight: {
                 crafted: false,
                 level: 0,
                 exp: 0,
-                nextExp: 50
+                nextExp: 50,
+                slots: []
             }
         };
     } else {
@@ -9227,7 +10836,8 @@ function ensureGameDataIntegrity() {
             gameData.tools.pickaxe = {
                 level: 0,
                 exp: 0,
-                nextExp: 50
+                nextExp: 50,
+                slots: [null, null, null]
             };
         } else {
             if (gameData.tools.pickaxe.level === undefined) {
@@ -9238,6 +10848,63 @@ function ensureGameDataIntegrity() {
             }
             if (gameData.tools.pickaxe.nextExp === undefined) {
                 gameData.tools.pickaxe.nextExp = 50;
+            }
+            if (gameData.tools.pickaxe.slots === undefined) {
+                gameData.tools.pickaxe.slots = [null, null, null];
+            }
+        }
+        
+        // 确保矿车属性完整
+        if (!gameData.tools.cart) {
+            gameData.tools.cart = {
+                crafted: false,
+                level: 0,
+                exp: 0,
+                nextExp: 50,
+                slots: [null, null, null]
+            };
+        } else {
+            if (gameData.tools.cart.crafted === undefined) {
+                gameData.tools.cart.crafted = false;
+            }
+            if (gameData.tools.cart.level === undefined) {
+                gameData.tools.cart.level = 0;
+            }
+            if (gameData.tools.cart.exp === undefined) {
+                gameData.tools.cart.exp = 0;
+            }
+            if (gameData.tools.cart.nextExp === undefined) {
+                gameData.tools.cart.nextExp = 50;
+            }
+            if (gameData.tools.cart.slots === undefined) {
+                gameData.tools.cart.slots = [null, null, null];
+            }
+        }
+        
+        // 确保头灯属性完整
+        if (!gameData.tools.headlight) {
+            gameData.tools.headlight = {
+                crafted: false,
+                level: 0,
+                exp: 0,
+                nextExp: 50,
+                slots: [null, null, null]
+            };
+        } else {
+            if (gameData.tools.headlight.crafted === undefined) {
+                gameData.tools.headlight.crafted = false;
+            }
+            if (gameData.tools.headlight.level === undefined) {
+                gameData.tools.headlight.level = 0;
+            }
+            if (gameData.tools.headlight.exp === undefined) {
+                gameData.tools.headlight.exp = 0;
+            }
+            if (gameData.tools.headlight.nextExp === undefined) {
+                gameData.tools.headlight.nextExp = 50;
+            }
+            if (gameData.tools.headlight.slots === undefined) {
+                gameData.tools.headlight.slots = [null, null, null];
             }
         }
     }
@@ -11593,7 +13260,15 @@ function consumeBatteryEnergy(amount) {
 
 // 材料名称映射（英文到中文）
 const materialNameMap = {
-    'toolSlot1': '基础工具插片'
+    'toolSlot1': '基础工具插片',
+    'pickaxeSlot': '采矿锄插片',
+    'cartSlot': '矿车插片',
+    'headlightSlot': '头灯插片',
+    'pickaxeTicket': '矿锄等级提升券',
+    'cartTicket': '矿车等级提升券',
+    'headlightTicket': '头灯等级提升券',
+    'forgeDelegate': '锻造委托',
+    'magicEquipment': '魔法装备'
 };
 
 // 材料获得方法
