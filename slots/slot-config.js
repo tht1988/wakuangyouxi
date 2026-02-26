@@ -1,15 +1,16 @@
 // 插片配置文件
 
 // 插片稀有度等级定义
-const slotRarities = [
+window.slotRarities = [
     { id: 'common', name: '普通', color: '#ffffff' },
     { id: 'uncommon', name: '稀有', color: '#0004ffff' },
     { id: 'rare', name: '史诗', color: '#a335ee' },
     { id: 'epic', name: '传说', color: '#ff8000' }
+];
 
 
 // 各工具可用的插片效果
-const slotEffects = {
+window.slotEffects = {
     'pickaxe': [
         { id: 'itemConversion', name: '成品转化' },
         { id: 'chainMining', name: '连锁采矿' },
@@ -37,7 +38,7 @@ const slotEffects = {
 };
 
 // 插片合成规则
-const slotCombineRules = {
+window.slotCombineRules = {
     // 基础规则：同工具、同稀有度的两个插片可以合成
     baseRule: 'sameToolSameRarity',
     // 合成概率
@@ -52,7 +53,7 @@ const slotCombineRules = {
 };
 
 // 插片制作配方
-const slotCraftingRecipes = {
+window.slotCraftingRecipes = {
     'toolSlot1': {
         name: '基础工具插片',
         materials: {
@@ -64,7 +65,7 @@ const slotCraftingRecipes = {
         name: '头灯插片',
         materials: {
             'toolSlot1': 1,
-            'battery': 1,
+            '电池': 1,
             'headlightTicket': 1
         }
     },
@@ -72,7 +73,7 @@ const slotCraftingRecipes = {
         name: '矿车插片',
         materials: {
             'toolSlot1': 1,
-            'fuel': 1,
+            '燃料': 1,
             'cartTicket': 1
         }
     },
@@ -80,7 +81,7 @@ const slotCraftingRecipes = {
         name: '采矿锄插片',
         materials: {
             'toolSlot1': 1,
-            'magnet': 1,
+            '磁铁': 1,
             'pickaxeTicket': 1
         }
     }
