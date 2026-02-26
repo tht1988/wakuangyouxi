@@ -1049,6 +1049,43 @@ Object.keys(window.slotEffects).forEach(toolType => {
         'headlight': ['加强灯泡', '电池优化', '副产物增强', '超载照明', '幸运磁铁'],
         'base': ['基础插片']
     };
+    window.slotCraftingRecipes = {
+        'toolSlot1': {
+            name: '基础工具插片',
+            materials: {
+                '磁铁': 5,
+                '工具插片碎片': 10
+            },
+            description: '基础工具插片，用于徽章升级和制作各种工具插片'
+        },
+        'headlightSlot': {
+            name: '头灯插片',
+            materials: {
+                'toolSlot1': 1,
+                '电池': 1,
+                'headlightTicket': 1
+            },
+            description: '头灯专用插片，用于提升头灯性能'
+        },
+        'cartSlot': {
+            name: '矿车插片',
+            materials: {
+                'toolSlot1': 1,
+                '燃料': 1,
+                'cartTicket': 1
+            },
+            description: '矿车专用插片，用于提升矿车性能'
+        },
+        'pickaxeSlot': {
+            name: '采矿锄插片',
+            materials: {
+                'toolSlot1': 1,
+                '磁铁': 1,
+                'pickaxeTicket': 1
+            },
+            description: '采矿锄专用插片，用于提升采矿锄性能'
+        }
+    };
 }
 
 // 获取插片基础名称和稀有度
