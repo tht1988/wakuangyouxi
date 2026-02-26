@@ -1014,25 +1014,30 @@ let questRefreshCountdownInterval = null;
 // 插片配置已移至外部文件 slots/slot-config.js
 // 使用外部配置文件中定义的变量
 try {
-    // 从外部配置获取稀有度等级
-    const slotRarityIds = window.slotRarities.map(rarity => rarity.id);
-    
     // 构建稀有度名称映射
     window.slotRarityNames = {};
-    window.slotRarities.forEach(rarity => {
-        window.slotRarityNames[rarity.id] = rarity.name;
-    });
-    
-    // 如果需要保持原有变量名，重新定义它们
-    window.slotRarities = slotRarityIds;
+    if (Array.isArray(window.slotRarities)) {
+        window.slotRarities.forEach(rarity => {
+            window.slotRarityNames[rarity.id] = rarity.name;
+        });
+    }
     
     // 保留原始插片效果结构，添加一个方便访问名称的映射
-// 原始结构: { toolType: [{ id: 'effectId', name: '效果名称' }, ...] }
-// 同时创建一个名称数组映射，方便随机选择效果
-window.slotEffectNames = {};
-Object.keys(window.slotEffects).forEach(toolType => {
-    window.slotEffectNames[toolType] = window.slotEffects[toolType].map(effect => effect.name);
-});
+    // 原始结构: { toolType: [{ id: 'effectId', name: '效果名称' }, ...] }
+    // 同时创建一个名称数组映射，方便随机选择效果
+    window.slotEffectNames = {};
+    if (window.slotEffects) {
+        Object.keys(window.slotEffects).forEach(toolType => {
+            if (Array.isArray(window.slotEffects[toolType])) {
+                window.slotEffectNames[toolType] = window.slotEffects[toolType].map(effect => effect.name);
+            }
+        });
+    }
+    
+    // 确保 slotCraftingRecipes 从外部配置加载
+    if (!window.slotCraftingRecipes) {
+        throw new Error('slotCraftingRecipes not found in external config');
+    }
 } catch (error) {
     console.warn('未能加载外部插片配置，使用默认配置:', error);
     // 备用默认配置
@@ -6064,7 +6069,14 @@ function completeMining(mineral) {
     
     // 处理矿工加成
     if (minerBonus) {
-        // 这里可以添加矿工1分钟内所得物增加100%的逻辑
+        // 实现矿工1分钟内所得物增加100%的逻辑
+        if (!gameData.minersGuild.minerBonus) {
+            gameData.minersGuild.minerBonus = {
+                active: true,
+                endTime: Date.now() + 60000, // 1分钟
+                multiplier: 2 // 增加100%
+            };
+        }
         addMessage('传说级金币经验效果触发！雇佣的矿工1分钟内所得物增加100%！');
         updateMessages();
     }
@@ -6366,7 +6378,23 @@ function completeMining(mineral) {
         
         // 传说级额外获得一个随机非传说级非碎片回收插片
         if (highestRarityEffect.rarity === 'epic' && Math.random() < 0.05) {
-            // 这里可以添加获得随机非传说级非碎片回收插片的逻辑
+            // 获得随机非传说级非碎片回收插片
+            const slotTypes = ['pickaxeSlot', 'cartSlot', 'headlightSlot'];
+            const randomSlotType = slotTypes[Math.floor(Math.random() * slotTypes.length)];
+            let possibleEffects = [];
+            switch (randomSlotType) {
+                case 'pickaxeSlot':
+                    possibleEffects = ['成品转化', '连锁采矿', '金币经验', '燃料惊喜'];
+                    break;
+                case 'cartSlot':
+                    possibleEffects = ['自动运输', '运力翻倍', '燃料暴击', '压缩燃料', '现场收购'];
+                    break;
+                case 'headlightSlot':
+                    possibleEffects = ['加强灯泡', '电池优化', '副产物增强', '超载照明', '幸运磁铁'];
+                    break;
+            }
+            const randomEffect = possibleEffects[Math.floor(Math.random() * possibleEffects.length)];
+            addSlotWithRarity(randomSlotType, 'epic', randomEffect);
             addMessage('传说级碎片回收效果触发！额外获得了一个随机插片！');
         }
         
@@ -6449,7 +6477,12 @@ function completeMining(mineral) {
             
             // 传说级额外效果：必出一个副产物
             if (highestRarityEffect.rarity === 'epic') {
-                addMessage('传说级自动运输效果触发！必出一个副产物！');
+                // 必出一个副产物
+                if (mineral.drops && mineral.drops.length > 0) {
+                    const randomDrop = mineral.drops[Math.floor(Math.random() * mineral.drops.length)];
+                    addToBackpack(randomDrop.name);
+                    addMessage(`传说级自动运输效果触发！必出一个副产物 ${randomDrop.name}！`);
+                }
             }
             
             updateMessages();
@@ -6649,7 +6682,8 @@ function completeMining(mineral) {
                 
                 // 传说级额外效果：返还一个史诗级燃料暴击插片
                 if (highestRarityEffect.rarity === 'epic') {
-                    // 这里可以添加返还一个史诗级燃料暴击插片的逻辑
+                    // 返还一个史诗级燃料暴击插片
+                    addSlotWithRarity('cartSlot', 'epic', '燃料暴击');
                     addMessage('传说级燃料暴击效果触发！返还一个史诗级燃料暴击插片！');
                 }
                 
@@ -6741,8 +6775,18 @@ function completeMining(mineral) {
         
         // 传说级额外效果：5%几率获得一个随机的工具等级提升券
         if (highestRarityEffect.rarity === 'epic' && Math.random() < 0.05) {
-            // 这里可以添加获得一个随机的工具等级提升券的逻辑
-            addMessage('传说级现场收购效果触发！获得一个随机的工具等级提升券！');
+            // 获得一个随机的工具等级提升券
+            const toolTypes = ['pickaxe', 'cart', 'headlight'];
+            const randomToolType = toolTypes[Math.floor(Math.random() * toolTypes.length)];
+            if (!gameData.unlockTickets) {
+                gameData.unlockTickets = {
+                    pickaxe: 0,
+                    cart: 0,
+                    headlight: 0
+                };
+            }
+            gameData.unlockTickets[randomToolType] = (gameData.unlockTickets[randomToolType] || 0) + 1;
+            addMessage(`传说级现场收购效果触发！获得一个${getToolName(randomToolType)}等级提升券！`);
         }
         
         // 显示现场收购触发的消息
@@ -6963,7 +7007,7 @@ function completeMining(mineral) {
             // 传说级额外效果：返还一个史诗级超载照明插片
             if (highestRarityEffect.rarity === 'epic') {
                 // 添加史诗级超载照明插片到背包
-                addSlotWithRarity('headlightSlot', 'epic');
+                addSlotWithRarity('headlightSlot', 'epic', '超载照明');
                 addMessage('传说级超载照明效果触发！返还一个史诗级超载照明插片！');
             }
             
