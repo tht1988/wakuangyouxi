@@ -1,0 +1,335 @@
+{
+  "player": {
+    "level": 27,
+    "exp": 288025,
+    "nextExp": 1883583,
+    "gold": 295916200
+  },
+  "gainedInfo": {
+    "exp": 337350,
+    "gold": 0,
+    "minerals": 9727,
+    "cloth": 208,
+    "detailed": {
+      "铜矿": 9556,
+      "尼龙布": 208,
+      "硫磺": 237,
+      "铜铁合金": 189,
+      "铁矿": 171
+    },
+    "autoSell": {
+      "gold": 0,
+      "items": {}
+    }
+  },
+  "messages": [
+    "恭喜获得：铜矿*9（基础*1+矿车*8）, 燃料剩余次数-1（矿车消耗）, 人物经验*300！",
+    "恭喜获得：铜矿*9（基础*1+矿车*8）, 燃料剩余次数-1（矿车消耗）, 人物经验*300！",
+    "任务大厅已刷新！",
+    "恭喜获得：铜矿*9（基础*1+矿车*8）, 燃料剩余次数-1（矿车消耗）, 人物经验*300！",
+    "恭喜获得：铜矿*9（基础*1+矿车*8）, 燃料剩余次数-1（矿车消耗）, 硫磺*1, 人物经验*300！",
+    "恭喜获得：铜矿*9（基础*1+矿车*8）, 燃料剩余次数-1（矿车消耗）, 尼龙布*1, 人物经验*300！",
+    "背包整理完成！",
+    "恭喜获得：铜矿*9（基础*1+矿车*8）, 燃料剩余次数-1（矿车消耗）, 硫磺*1, 人物经验*300！",
+    "恭喜获得：铜矿*9（基础*1+矿车*8）, 燃料剩余次数-1（矿车消耗）, 尼龙布*1, 人物经验*300！",
+    "恭喜获得：铜矿*9（基础*1+矿车*8）, 燃料剩余次数-1（矿车消耗）, 人物经验*300！"
+  ],
+  "tools": {
+    "pickaxe": {
+      "level": 37,
+      "exp": 14518,
+      "nextExp": 14518,
+      "maxLevel": 50
+    },
+    "cart": {
+      "crafted": true,
+      "level": 19,
+      "exp": 850,
+      "nextExp": 850,
+      "active": true,
+      "fuelType": "fuel",
+      "fuelCapacity": 50,
+      "currentFuel": 39,
+      "optimized": true,
+      "maxLevel": 50
+    },
+    "headlight": {
+      "crafted": true,
+      "level": 10,
+      "exp": 567,
+      "nextExp": 567,
+      "active": false,
+      "lastGoldConsume": 1769774258504,
+      "optimized": true,
+      "fuelType": "battery",
+      "batteryEnergy": 0,
+      "maxBatteryEnergy": 300,
+      "lastBatteryUpdate": 1769963431465,
+      "maxLevel": 50
+    }
+  },
+  "furnace": {
+    "crafted": true,
+    "level": 5,
+    "fuel": {
+      "type": "煤矿",
+      "amount": 19,
+      "maxAmount": 100,
+      "burnTime": 385,
+      "maxBurnTime": 1985
+    },
+    "alloySlots": 4,
+    "slots": [
+      {
+        "id": 0,
+        "working": false,
+        "alloyName": null,
+        "amount": 0,
+        "startTime": 0,
+        "totalTime": 0,
+        "remainingTime": 0
+      }
+    ]
+  },
+  "backpack": {
+    "capacity": 50,
+    "baseCapacity": 10,
+    "items": {
+      "粗麻布": 288,
+      "尼龙布": 638,
+      "石灰": 42,
+      "煤矿": 387,
+      "棉布": 182,
+      "铁矿": 30,
+      "木材": 544,
+      "织布": 1,
+      "燃料": 580,
+      "金手套": 51,
+      "铜镍合金": 144,
+      "石矿": 133,
+      "钴矿": 340,
+      "银矿": 70,
+      "铜铁合金线": 340,
+      "铜矿": 4100,
+      "铜矿_2": 4100,
+      "铜矿_3": 1800,
+      "棉布包": 3,
+      "粗麻布包": 1,
+      "煤炭": 46,
+      "硫磺": 323,
+      "铜钴合金": 5,
+      "镍矿": 177,
+      "电池": 11,
+      "铜铁合金配方": 10,
+      "铜铁合金": 80
+    },
+    "expansionSlots": [
+      "尼龙布包",
+      "尼龙布包",
+      "尼龙布包",
+      "尼龙布包",
+      "旅行背包",
+      "旅行背包",
+      "旅行背包",
+      "旅行背包",
+      "旅行背包",
+      "旅行背包",
+      "旅行背包",
+      "旅行背包"
+    ],
+    "maxExpansionSlots": 12,
+    "baseStackSize": 20,
+    "currentStackSize": 4100
+  },
+  "miningCount": {
+    "石矿": 18,
+    "煤矿": 11,
+    "铁矿": 12,
+    "铜矿": 32,
+    "钴矿": 2,
+    "镍矿": 4
+  },
+  "selectedMineral": "铁矿",
+  "unlockedRecipes": {
+    "铜铁合金": true,
+    "铜钴合金": true,
+    "铜镍合金": true
+  },
+  "tempBackpack": {
+    "items": {}
+  },
+  "shop": {
+    "unlocked": true,
+    "level": 3,
+    "refreshTime": 180,
+    "currentTime": 0,
+    "items": [
+      {
+        "name": "燃料*1",
+        "price": 450,
+        "probability": 0.05,
+        "isPriceIncrease": true,
+        "priceIncreaseText": "涨价50%！"
+      },
+      {
+        "name": "燃料*1",
+        "price": 300,
+        "probability": 0.05
+      },
+      {
+        "name": "电池*1",
+        "price": 350,
+        "probability": 0.05
+      },
+      {
+        "name": "铜镍合金*5",
+        "price": 870,
+        "probability": 0.15
+      },
+      {
+        "name": "木材*100",
+        "price": 1000,
+        "probability": 0.3
+      }
+    ],
+    "lastRefresh": 1770796592012,
+    "manualRefreshCost": 1000,
+    "unlockedBlueprints": {
+      "加工台图纸": true,
+      "电池图纸": true,
+      "燃料配方": true
+    },
+    "upgradeCosts": [
+      100000,
+      500000,
+      1000000
+    ],
+    "freeRefreshes": 66,
+    "lastFreeRefreshTime": 1769954493630,
+    "neededItem": "",
+    "autoPurchaseItems": [],
+    "autoPurchaseDiscounts": false,
+    "lastHadTravelBackpack": false,
+    "maxFreeRefreshes": 50
+  },
+  "workshop": {
+    "unlocked": true,
+    "batterySlot": null,
+    "batteryEnergy": 282,
+    "maxBatteryEnergy": null,
+    "itemsCrafted": 986,
+    "level": 5
+  },
+  "goldenGlove": {
+    "active": false,
+    "endTime": 1769963282006
+  },
+  "filterSettings": {},
+  "activeEffects": {},
+  "questHall": {
+    "unlocked": true,
+    "quests": [
+      {
+        "id": 1770796730024.8403,
+        "type": "collection",
+        "item": "铜铁合金",
+        "itemType": "alloy",
+        "amount": 9,
+        "collected": 0,
+        "reward": {
+          "type": "experience",
+          "value": 540
+        }
+      },
+      {
+        "id": 1770796730024.3909,
+        "type": "collection",
+        "item": "燃料",
+        "itemType": "fuel",
+        "amount": 6,
+        "collected": 0,
+        "reward": {
+          "type": "experience",
+          "value": 120
+        }
+      },
+      {
+        "id": 1770796730024.4382,
+        "type": "collection",
+        "item": "铜钴合金",
+        "itemType": "alloy",
+        "amount": 12,
+        "collected": 0,
+        "reward": {
+          "type": "ticket",
+          "tool": "cart",
+          "amount": 1
+        }
+      }
+    ],
+    "acceptedQuests": [],
+    "lastRefreshTime": 1770796730024,
+    "refreshInterval": 120000,
+    "maxQuests": 3
+  },
+  "unlockTickets": {
+    "pickaxe": 0,
+    "cart": 0,
+    "headlight": 0
+  },
+  "specialEvents": {
+    "npcCopperPurchase": {
+      "triggered": false,
+      "completed": false,
+      "requiredAmount": 9999,
+      "reward": {
+        "type": "badge",
+        "name": "初级矿工徽章"
+      }
+    }
+  },
+  "minersGuild": {
+    "unlocked": false,
+    "miners": [],
+    "autoMining": {
+      "enabled": false,
+      "selectedMineral": null,
+      "interval": 60,
+      "lastMiningTime": 0
+    },
+    "commissionRate": 0.1,
+    "maxMiners": 5,
+    "badge": {
+      "level": 1,
+      "maxLevel": 10,
+      "experience": 0,
+      "nextLevelExp": 1000
+    },
+    "upgradeMaterials": {
+      "badgeShards": 0,
+      "guildTokens": 0,
+      "miningCrystals": 0
+    },
+    "badgeUpgrades": [
+      {
+        "level": 1,
+        "name": "初级矿工徽章",
+        "description": "矿工协会的基础徽章",
+        "requirements": {
+          "badgeShards": 0,
+          "guildTokens": 0,
+          "miningCrystals": 0
+        },
+        "bonuses": {
+          "efficiency": 1,
+          "experience": 1,
+          "maxMiners": 5
+        }
+      }
+    ]
+  },
+  "badges": {
+    "hasMinersBadge": false,
+    "badgeLevel": 0
+  }
+}
