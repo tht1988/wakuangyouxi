@@ -333,7 +333,10 @@ const backpackExpansions = {
     '旅行背包': {
         name: '旅行背包',
         description: '增加500堆叠数量',
-        materials: {},
+        materials: {
+            '尼龙布': 30,
+            '木材': 10
+        },
         effect: { stackSize: 500 },
         type: 'stack',
         isSpecial: true
@@ -599,6 +602,9 @@ function calculateBackpackStats() {
 function initGame() {
     initSaveSystem();
     loadGame();
+    
+    // 修复经验值溢出问题
+    checkLevelUp();
     
     // 强制修复所有关键状态
     console.log('游戏初始化 - 强制修复开始');
@@ -3350,9 +3356,9 @@ function performAutoMining() {
             addMessage(`存入${amount}个${item}到协会仓库，现在仓库中有${gameData.minersGuild.storage[item]}个${item}！`);
         }
         
-        // 添加经验
-        addMessage(`玩家获得${rewards.exp}点经验！`);
-        gameData.player.exp += rewards.exp;
+        // 移除矿工挖矿增加玩家经验的逻辑
+        // addMessage(`玩家获得${rewards.exp}点经验！`);
+        // gameData.player.exp += rewards.exp;
         
         // 确保矿工对象有exp和nextExp属性
         if (miner.exp === undefined) miner.exp = 0;
@@ -3368,7 +3374,7 @@ function performAutoMining() {
             miner.exp += minerExpGain;
             addMessage(`矿工${miner.name}获得${minerExpGain}点经验，当前经验：${miner.exp}/${miner.nextExp}！`);
             if (miner.exp >= miner.nextExp) {
-                addMessage(`${miner.name} 的经验已满，等待升级！`);
+                if (!isBackground) addMessage(`${miner.name} 的经验已满，等待升级！`);
             }
         } else {
             addMessage(`矿工${miner.name}经验已满，等待升级！`);
@@ -5032,6 +5038,8 @@ function completeQuest(questId) {
     if (quest.reward.type === 'experience') {
         gameData.player.exp += quest.reward.value;
         addMessage(`任务完成！获得${quest.reward.value}点经验！`);
+        // 检查并处理经验值溢出
+        checkLevelUp();
     } else if (quest.reward.type === 'recipe') {
         const recipeValue = quest.reward.value;
         if (recipeValue === '铝矿配方' || recipeValue === '磁铁配方') {
@@ -6163,6 +6171,10 @@ document.addEventListener('visibilitychange', function() {
 
 // 处理后台经过的时间
 function handleBackgroundTime(elapsedTime) {
+    // 限制最大处理时间为1小时，避免处理过长时间
+    const MAX_ELAPSED_TIME = 3600;
+    const processedTime = Math.min(elapsedTime, MAX_ELAPSED_TIME);
+    
     // 检查是否有正在进行的采矿
     if (continuousMining && currentContinuousMineral) {
         const mineral = minerals.find(m => m.name === currentContinuousMineral);
@@ -6192,33 +6204,49 @@ function handleBackgroundTime(elapsedTime) {
                 pickaxeBonus = Math.min(0.9, pickaxeBonus);
             }
             const actualTime = mineral.baseTime * (1 - pickaxeBonus);
-            // 调试信息：显示矿锄等级和计算出的实际时间
-            console.log(`矿锄等级: ${pickaxeLevel}, 加速效果: ${(pickaxeBonus * 100).toFixed(2)}%, 基础时间: ${mineral.baseTime}s, 实际时间: ${actualTime.toFixed(2)}s`);
             
             // 计算在后台完成的采矿次数
-            const completedMines = Math.floor(elapsedTime / actualTime);
+            const completedMines = Math.floor(processedTime / actualTime);
             
-            // 执行完成的采矿次数
-            for (let i = 0; i < completedMines && continuousMining; i++) {
-                completeMining(mineral);
+            // 定义每批次处理的最大采矿次数
+            const MAX_MINES_PER_BATCH = 10;
+            
+            // 处理当前批次的采矿
+            const minesToProcess = Math.min(completedMines, MAX_MINES_PER_BATCH);
+            
+            for (let i = 0; i < minesToProcess && continuousMining; i++) {
+                completeMining(mineral, true); // 传入true表示后台模式
             }
             
-            // 计算剩余时间，更新当前采矿进度
-            const remainingTime = elapsedTime % actualTime;
-            if (remainingTime > 0) {
-                // 更新当前采矿进度
-                continuousElapsedTime = remainingTime * 1000; // 转换为毫秒
-                const progress = Math.min(100, (continuousElapsedTime / (actualTime * 1000)) * 100);
-                const remaining = Math.max(0, actualTime - remainingTime);
+            // 计算剩余采矿次数
+            const remainingMines = completedMines - minesToProcess;
+            
+            if (remainingMines > 0) {
+                // 计算剩余时间
+                const remainingTime = remainingMines * actualTime;
                 
-                // 更新UI
-                const mineralEl = document.querySelector(`[data-name="${currentContinuousMineral}"]`);
-                if (mineralEl) {
-                    const progressFill = mineralEl.querySelector('.progress-fill');
-                    const countdown = mineralEl.querySelector('.countdown');
-                    if (progressFill && countdown) {
-                        progressFill.style.width = `${progress}%`;
-                        countdown.textContent = `${remaining.toFixed(2)}s`;
+                // 使用setTimeout分批次处理剩余采矿
+                setTimeout(() => {
+                    handleBackgroundTime(remainingTime);
+                }, 0);
+            } else {
+                // 计算剩余时间，更新当前采矿进度
+                const remainingTime = processedTime % actualTime;
+                if (remainingTime > 0) {
+                    // 更新当前采矿进度
+                    continuousElapsedTime = remainingTime * 1000; // 转换为毫秒
+                    const progress = Math.min(100, (continuousElapsedTime / (actualTime * 1000)) * 100);
+                    const remaining = Math.max(0, actualTime - remainingTime);
+                    
+                    // 更新UI
+                    const mineralEl = document.querySelector(`[data-name="${currentContinuousMineral}"]`);
+                    if (mineralEl) {
+                        const progressFill = mineralEl.querySelector('.progress-fill');
+                        const countdown = mineralEl.querySelector('.countdown');
+                        if (progressFill && countdown) {
+                            progressFill.style.width = `${progress}%`;
+                            countdown.textContent = `${remaining.toFixed(2)}s`;
+                        }
                     }
                 }
             }
@@ -6478,7 +6506,7 @@ function stopContinuousMining() {
     
 }
 
-function completeMining(mineral) {
+function completeMining(mineral, isBackground = false) {
     if (!gameData.miningCount) {
         gameData.miningCount = {};
     }
@@ -6511,7 +6539,7 @@ function completeMining(mineral) {
             // 矿车每5级提升1个采矿数量
             const cartBonus = Math.floor(gameData.tools.cart.level / 5);
             baseAmount = 1 + cartBonus;
-            addMessage('自动运输激活中，矿车无燃料消耗！');
+            if (!isBackground) addMessage('自动运输激活中，矿车无燃料消耗！');
         } else {
             const fuelType = gameData.tools.cart.fuelType || 'coal';
             
@@ -6525,7 +6553,7 @@ function completeMining(mineral) {
                 } else {
                     // 煤矿不足，自动停用矿车
                     gameData.tools.cart.active = false;
-                    addMessage('煤矿不足，矿车已自动停止使用！请添加煤矿。');
+                    if (!isBackground) addMessage('煤矿不足，矿车已自动停止使用！请添加煤矿。');
                 }
             } else {
                 // 使用高级燃料：消耗燃料舱中的燃料次数
@@ -6549,7 +6577,7 @@ function completeMining(mineral) {
                             // 矿车每5级提升1个采矿数量，使用燃料时额外加5
                             const cartBonus = Math.floor(gameData.tools.cart.level / 5) + 5;
                             baseAmount = 1 + cartBonus;
-                            addMessage('燃料舱燃料不足，已自动从背包中添加燃料！');
+                            if (!isBackground) addMessage('燃料舱燃料不足，已自动从背包中添加燃料！');
                         } else {
                             // 燃料不足，尝试切换到煤矿
                             if (hasEnoughItem('煤矿', 1)) {
@@ -6559,18 +6587,18 @@ function completeMining(mineral) {
                                 // 矿车每5级提升1个采矿数量
                                 const cartBonus = Math.floor(gameData.tools.cart.level / 5);
                                 baseAmount = 1 + cartBonus;
-                                addMessage('燃料不足，已自动切换到煤矿作为燃料！');
+                                if (!isBackground) addMessage('燃料不足，已自动切换到煤矿作为燃料！');
                             } else {
                                 // 煤矿也不足，自动停用矿车
                                 gameData.tools.cart.active = false;
-                                addMessage('燃料和煤矿都不足，矿车已自动停止使用！请添加燃料或煤矿。');
+                                if (!isBackground) addMessage('燃料和煤矿都不足，矿车已自动停止使用！请添加燃料或煤矿。');
                             }
                         }
                     }
                 } else {
                     // 矿车未优化，自动停用矿车
                     gameData.tools.cart.active = false;
-                    addMessage('矿车尚未优化！需要先在加工台优化矿车才能使用高级燃料。');
+                    if (!isBackground) addMessage('矿车尚未优化！需要先在加工台优化矿车才能使用高级燃料。');
                 }
             }
         }
@@ -6584,11 +6612,11 @@ function completeMining(mineral) {
     let totalGold = 0;
     let totalMineralExp = 0;
     
-    // 添加金币（基础金币）
-    const baseGold = mineral.price || 0;
-    totalGold += baseGold;
-    gameData.player.gold += baseGold;
-    addGainedGold(baseGold);
+    // 移除挖矿时直接获得金币的逻辑，金币应通过出售矿物获得
+    // const baseGold = mineral.price || 0;
+    // totalGold += baseGold;
+    // gameData.player.gold += baseGold;
+    // addGainedGold(baseGold);
     
     // 应用金币经验效果（修改为增加矿物经验倍数）
     let minerBonus = false;
@@ -6615,8 +6643,10 @@ function completeMining(mineral) {
                 multiplier: 2 // 增加100%
             };
         }
-        addMessage('传说级金币经验效果触发！雇佣的矿工1分钟内所得物增加100%！');
-        updateMessages();
+        if (!isBackground) {
+            addMessage('传说级金币经验效果触发！雇佣的矿工1分钟内所得物增加100%！');
+            updateMessages();
+        }
     }
     
     // 为所有工作中的矿工添加经验（手动挖矿时）
@@ -6660,7 +6690,7 @@ function completeMining(mineral) {
             const residue = mineral.name.replace('矿', '') + '渣';
             const amount = Math.floor(Math.random() * 2) + 1; // 1-2个
             addToBackpack(residue, amount);
-            addMessage(`采矿获得：${residue} × ${amount}`);
+            if (!isBackground) addMessage(`采矿获得：${residue} × ${amount}`);
         }
     }
     
@@ -6775,12 +6805,12 @@ function completeMining(mineral) {
             });
             
             // 显示连锁采矿触发的消息，包含具体矿物名称和数量
-            addMessage(`连锁采矿触发！额外获得了 ${gainedMinerals.map(mineral => `${mineral}×${baseAmount}`).join('、')}！`);
+            if (!isBackground) addMessage(`连锁采矿触发！额外获得了 ${gainedMinerals.map(mineral => `${mineral}×${baseAmount}`).join('、')}！`);
             
             // 处理副产品翻倍效果
             if (doubleByproducts) {
                 // 这里可以添加副产品翻倍的逻辑
-                addMessage('传说级连锁采矿触发！当前采集矿物的副产品翻倍！');
+                if (!isBackground) addMessage('传说级连锁采矿触发！当前采集矿物的副产品翻倍！');
             }
             
             updateMessages();
@@ -6838,11 +6868,11 @@ function completeMining(mineral) {
         // 传说级额外获得一个扎啤
         if (highestRarityEffect.rarity === 'epic') {
             addToBackpack('扎啤', 1);
-            addMessage('传说级燃料惊喜效果触发！额外获得了一个扎啤！');
+            if (!isBackground) addMessage('传说级燃料惊喜效果触发！额外获得了一个扎啤！');
         }
         
         // 显示燃料惊喜触发的消息
-        addMessage(`燃料惊喜效果触发！获得了 ${batteryCount} 个电池和 ${fuelItemCount} 个燃料！`);
+        if (!isBackground) addMessage(`燃料惊喜效果触发！获得了 ${batteryCount} 个电池和 ${fuelItemCount} 个燃料！`);
         updateMessages();
     }
     
@@ -6893,11 +6923,11 @@ function completeMining(mineral) {
             }
             const randomEffect = possibleEffects[Math.floor(Math.random() * possibleEffects.length)];
             addSlotWithRarity(randomSlotType, 'epic', randomEffect);
-            addMessage('传说级碎片回收效果触发！额外获得了一个随机插片！');
+            if (!isBackground) addMessage('传说级碎片回收效果触发！额外获得了一个随机插片！');
         }
         
         // 显示碎片回收触发的消息
-        addMessage(`碎片回收效果触发！获得了 ${fragmentCount} 个工具插片碎片！`);
+        if (!isBackground) addMessage(`碎片回收效果触发！获得了 ${fragmentCount} 个工具插片碎片！`);
         updateMessages();
     }
     
@@ -7042,6 +7072,8 @@ function completeMining(mineral) {
             addGainedExp(bonusExp);
             // 更新 totalMineralExp，确保采矿记录包含所有经验
             totalMineralExp += bonusExp;
+            // 检查并处理经验值溢出
+            checkLevelUp();
             
             // 只有当工具经验值未满时才添加经验值
             if (gameData.tools.pickaxe.level < 50) {
@@ -7462,6 +7494,8 @@ function completeMining(mineral) {
                 addGainedExp(bonusExp);
                 // 更新 totalMineralExp，确保采矿记录包含所有经验
                 totalMineralExp += bonusExp;
+                // 检查并处理经验值溢出
+                checkLevelUp();
                 
                 // 只有当工具经验值未满时才添加经验值
                 if (gameData.tools.pickaxe.level < 50) {
@@ -7664,6 +7698,8 @@ function completeMining(mineral) {
                             const bonusExp = applyGoldenGloveExpBonus(higherMineralData.exp);
                             gameData.player.exp += bonusExp;
                             addGainedExp(bonusExp);
+                            // 检查并处理经验值溢出
+                            checkLevelUp();
                             
                             // 只有当工具经验值未满时才添加经验值
                             if (gameData.tools.pickaxe.level < 50) {
@@ -7794,6 +7830,8 @@ function completeMining(mineral) {
         // 添加经验到玩家
         gameData.player.exp += totalExp;
         addGainedExp(totalExp);
+        // 检查并处理经验值溢出
+        checkLevelUp();
         
         // 只有当工具经验值未满时才添加经验值
         if (gameData.tools.pickaxe.level < 50) {
@@ -8462,9 +8500,20 @@ function checkLevelUp() {
         leveledUp = true;
     }
     
-    // 如果玩家升级了，检查配方解锁
+    // 如果玩家升级了，执行相关更新
     if (leveledUp) {
         checkAndUnlockAllRecipes();
+        // 重新生成矿物网格，显示新解锁的矿物
+        generateMineralGrid();
+        // 重新生成矿物选项，更新下拉菜单
+        generateMineralOptions();
+        // 更新矿工协会的自动挖矿矿物选项
+        if (gameData.minersGuild.unlocked) {
+            const mineralSelect = document.getElementById('mineral-select');
+            if (mineralSelect) {
+                mineralSelect.innerHTML = generateMineralOptions();
+            }
+        }
     }
     
     // 采矿锄：初始经验50点，每级增加50%，最大50级
@@ -9187,8 +9236,9 @@ function populateBackpackTypes() {
     // 清空现有选项
     backpackTypeSelect.innerHTML = '';
     
-    // 添加背包类型选项
+    // 添加背包类型选项（跳过旅行背包，只能通过商店或任务获得）
     for (const [type, data] of Object.entries(backpackExpansions)) {
+        if (type === '旅行背包') continue; // 旅行背包不可制作
         const option = document.createElement('option');
         option.value = type;
         option.textContent = data.name;
@@ -9208,6 +9258,7 @@ function populateBackpackTypes() {
 function openBackpackCraftPanel() {
     let panelHTML = '<h3>制作背包扩充</h3><div class="craft-expansion-list">';
     for (const [type, data] of Object.entries(backpackExpansions)) {
+        if (type === '旅行背包') continue; // 旅行背包不可制作
         let materialsText = '';
         for (const [material, amount] of Object.entries(data.materials)) {
             materialsText += `${material}×${amount} `;
@@ -12347,6 +12398,8 @@ function completeCrafting(position = null) {
     
     // 给玩家和工具添加经验
     gameData.player.exp += extraData.alloyExpWithBonus;
+    // 检查并处理经验值溢出
+    checkLevelUp();
     
     // 只有当工具经验值未满时才添加经验值
     let pickaxeGainedExp = 0;
@@ -12941,6 +12994,42 @@ function ensureGameDataIntegrity() {
     }
     if (!gameData.messages) {
         gameData.messages = [];
+    }
+    // 确保玩家数据完整
+    if (!gameData.player) {
+        gameData.player = {
+            level: 1,
+            exp: 0,
+            nextExp: 100,
+            gold: 0
+        };
+    } else {
+        // 确保玩家等级、经验和金币字段存在
+        if (gameData.player.level === undefined || gameData.player.level === null) {
+            gameData.player.level = 1;
+        }
+        if (gameData.player.exp === undefined || gameData.player.exp === null) {
+            gameData.player.exp = 0;
+        }
+        if (gameData.player.nextExp === undefined || gameData.player.nextExp === null) {
+            gameData.player.nextExp = 100;
+        }
+        if (gameData.player.gold === undefined || gameData.player.gold === null || isNaN(gameData.player.gold)) {
+            gameData.player.gold = 0;
+        }
+        
+        // 处理经验值超过升级阈值的情况
+        let originalLevel = gameData.player.level;
+        while (gameData.player.exp >= gameData.player.nextExp) {
+            gameData.player.exp -= gameData.player.nextExp;
+            gameData.player.level++;
+            gameData.player.nextExp = Math.floor(gameData.player.nextExp * 1.5);
+        }
+        
+        // 如果等级有变化，将修复后的数据保存到本地存储
+        if (originalLevel !== gameData.player.level) {
+            localStorage.setItem(`miningGame-${currentSaveSlot}`, JSON.stringify(gameData));
+        }
     }
     // 确保插片制作系统数据存在，兼容旧存档
     if (!gameData.slotCrafting) {
@@ -13882,6 +13971,7 @@ function importGameData() {
                 if (importedData && importedData.player && importedData.tools && importedData.backpack) {
                     gameData = importedData;
                     ensureGameDataIntegrity();
+                    checkLevelUp();
                     updateUI();
                     generateMineralGrid();
                     generateBackpack();
@@ -14178,15 +14268,31 @@ function getItemPrice(itemName) {
     
     // 检查是否是其他物品
     switch (itemName) {
+        // 材料类物品
         case '棉布': return 1;
         case '织布': return 2;
         case '粗麻布': return 3;
         case '尼龙布': return 5;
         case '硫磺': return 10;
+        
+        // 合金类物品
         case '铜铁合金': return 54;
         case '铜钴合金': return 78;
         case '铜镍合金': return 87;
         case '铜银合金': return 96;
+        case '金砖': return 660; // 制作成本：金矿×10=440金币，售价为成本的1.5倍，与其他合金定价策略一致
+        case '铝矿': return 50; // 铝矿售价为50金币，与其他高级合金价格保持一致
+        
+        // 消耗品（基于制作成本和商店价格的合理比例）
+        case '电池': return 15;
+        case '燃料': return 20;
+        case '扎啤': return 100;
+        
+        // 特殊物品（商店购买类，出售价格为购买价格的50%-70%）
+        case '旅行背包': return 5000; // 商店售价10000金币的50%
+        case '金手套': return 7000; // 商店售价10000金币的70%
+        
+        // 不可出售物品（工具类、背包制作材料等）保持默认0
         default: return 0;
     }
 }
@@ -14723,31 +14829,38 @@ function refreshShopItems(isManualRefresh = false, isFreeRefresh = false) {
     const items = [];
     const itemCount = Math.floor(Math.random() * 3) + 3; // 3-5个物品
     
-    // 物品池
+    // 生成5的倍数数量（1-100）
+    function generateRandomAmount() {
+        // 5的倍数，最小1，最大100
+        const options = [1, 5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100];
+        return options[Math.floor(Math.random() * options.length)];
+    }
+    
+    // 物品池：分离物品名和基础价格
     const itemPool = [
-        { name: '加工台图纸', price: 1000, probability: 0.1, isBlueprint: true },
-        { name: '电池图纸', price: 1000, probability: 0.1, isBlueprint: true },
-        { name: '燃料配方', price: 1000, probability: 0.1, isBlueprint: true },
-        { name: '棉布*100', price: 400, probability: 0.2 },
-        { name: '电池*1', price: 350, probability: 0.05 },
-        { name: '燃料*1', price: 300, probability: 0.05 },
-        { name: '木材*100', price: 1000, probability: 0.3 },
-        { name: '金手套', price: 10000, probability: 0.2, isSpecial: true, effect: 'expBoost' },
-        { name: '扎啤*1', price: 200, probability: 0.2, isSpecial: false, effect: 'intimacyBoost' }
+        { baseName: '加工台图纸', basePrice: 1000, probability: 0.1, isBlueprint: true },
+        { baseName: '电池图纸', basePrice: 1000, probability: 0.1, isBlueprint: true },
+        { baseName: '燃料配方', basePrice: 1000, probability: 0.1, isBlueprint: true },
+        { baseName: '棉布', basePrice: 4, probability: 0.2 },
+        { baseName: '电池', basePrice: 350, probability: 0.05 },
+        { baseName: '燃料', basePrice: 300, probability: 0.05 },
+        { baseName: '木材', basePrice: 10, probability: 0.3 },
+        { baseName: '金手套', basePrice: 10000, probability: 0.2, isSpecial: true, effect: 'expBoost' },
+        { baseName: '扎啤', basePrice: 200, probability: 0.2, isSpecial: false, effect: 'intimacyBoost' }
     ];
     
-    // 手动刷新（使用金币）时，添加旅行背包到物品池
+    // 添加旅行背包到物品池（可通过商店购买获得）
     // 确保不会连续出现2次旅行背包
-    if (isManualRefresh && !gameData.shop.lastHadTravelBackpack) {
-        itemPool.push({ name: '旅行背包', price: 10000, probability: 0.01, isSpecial: true, isHidden: true });
+    if (!gameData.shop.lastHadTravelBackpack) {
+        itemPool.push({ baseName: '旅行背包', basePrice: 10000, probability: 0.05, isSpecial: true });
     }
     
     // 添加已解锁的矿物（只保留石矿和煤矿）
     minerals.forEach(mineral => {
         if (gameData.player.level >= mineral.minLevel && (mineral.name === '石矿' || mineral.name === '煤矿')) {
             itemPool.push({
-                name: `${mineral.name}*100`,
-                price: mineral.price * 2 * 100, // 出售价值的200%，乘以数量100
+                baseName: mineral.name,
+                basePrice: mineral.price * 2, // 出售价值的200%
                 probability: 0.2
             });
         }
@@ -14762,8 +14875,8 @@ function refreshShopItems(isManualRefresh = false, isFreeRefresh = false) {
         // 检查并添加燃料优惠
         if (addFuelDiscount) {
             itemPool.push({
-                name: '燃料*5',
-                price: 300 * 5 * 0.5, // 300*5*50%
+                baseName: '燃料',
+                basePrice: 300 * 0.5, // 300*50%优惠
                 probability: 1,
                 isDiscount: true,
                 discountText: '优惠50%！'
@@ -14773,8 +14886,8 @@ function refreshShopItems(isManualRefresh = false, isFreeRefresh = false) {
         // 检查并添加电池优惠
         if (addBatteryDiscount) {
             itemPool.push({
-                name: '电池*5',
-                price: 350 * 5 * 0.5, // 350*5*50%
+                baseName: '电池',
+                basePrice: 350 * 0.5, // 350*50%优惠
                 probability: 1,
                 isDiscount: true,
                 discountText: '优惠50%！'
@@ -14787,7 +14900,7 @@ function refreshShopItems(isManualRefresh = false, isFreeRefresh = false) {
         // 检查玩家是否达到合金制作的等级要求
         const requiredLevel = getRequiredLevelForAlloy(alloyName);
         if (gameData.player.level >= requiredLevel) {
-            // 根据合金类型设置价格，使用出售价格的200%作为单个价格，然后乘以数量
+            // 根据合金类型设置价格，使用出售价格的200%作为单个价格
             let singleAlloyPrice = 20;
             switch (alloyName) {
                 case '铜铁合金':
@@ -14802,12 +14915,16 @@ function refreshShopItems(isManualRefresh = false, isFreeRefresh = false) {
                 case '铜银合金':
                     singleAlloyPrice = 96 * 2; // 出售价格96 * 2
                     break;
+                case '金砖':
+                    singleAlloyPrice = 660 * 2; // 出售价格660 * 2
+                    break;
+                case '铝矿':
+                    singleAlloyPrice = 50 * 2; // 调整铝矿价格
+                    break;
             }
-            const amount = 5; // 合金数量
-            const totalPrice = singleAlloyPrice * amount;
             itemPool.push({
-                name: `${alloyName}*${amount}`, // 合金数量
-                price: totalPrice,
+                baseName: alloyName,
+                basePrice: singleAlloyPrice,
                 probability: 0.15
             });
         }
@@ -14820,14 +14937,14 @@ function refreshShopItems(isManualRefresh = false, isFreeRefresh = false) {
             if (item.isBlueprint) {
                 // 检查图纸是否已解锁
                 // 对于加工台图纸，只有在加工台已解锁时才过滤
-                if (item.name === '加工台图纸') {
+                if (item.baseName === '加工台图纸') {
                     return !gameData.workshop.unlocked;
                 }
-                return !gameData.shop.unlockedBlueprints[item.name];
+                return !gameData.shop.unlockedBlueprints[item.baseName];
             }
             // 确保在同一次刷新时不会同时出现2个以上的旅行背包
-            if (item.name === '旅行背包') {
-                const hasTravelBackpack = items.some(existingItem => existingItem.name === '旅行背包');
+            if (item.baseName === '旅行背包') {
+                const hasTravelBackpack = items.some(existingItem => existingItem.baseName === '旅行背包');
                 if (hasTravelBackpack) {
                     return false;
                 }
@@ -14845,9 +14962,15 @@ function refreshShopItems(isManualRefresh = false, isFreeRefresh = false) {
                     // 从打折物品中随机选择
                     const randomIndex = Math.floor(Math.random() * discountItems.length);
                     const selectedItem = discountItems[randomIndex];
+                    // 生成随机数量
+                    const amount = selectedItem.isBlueprint ? 1 : generateRandomAmount();
+                    // 计算总价
+                    const totalPrice = selectedItem.basePrice * amount;
                     items.push({ 
-                        name: selectedItem.name, 
-                        price: selectedItem.price,
+                        baseName: selectedItem.baseName,
+                        name: `${selectedItem.baseName}*${amount}`,
+                        amount: amount,
+                        price: totalPrice,
                         isDiscount: selectedItem.isDiscount,
                         discountText: selectedItem.discountText
                     });
@@ -14855,11 +14978,15 @@ function refreshShopItems(isManualRefresh = false, isFreeRefresh = false) {
                     // 如果没有打折物品，创建一个打折物品
                     const randomIndex = Math.floor(Math.random() * availableItems.length);
                     const selectedItem = availableItems[randomIndex];
-                    
+                    // 生成随机数量
+                    const amount = selectedItem.isBlueprint ? 1 : generateRandomAmount();
                     // 创建打折物品（价格减半）
+                    const totalPrice = selectedItem.basePrice * amount * 0.5;
                     items.push({ 
-                        name: selectedItem.name, 
-                        price: selectedItem.price * 0.5,
+                        baseName: selectedItem.baseName,
+                        name: `${selectedItem.baseName}*${amount}`,
+                        amount: amount,
+                        price: totalPrice,
                         isDiscount: true,
                         discountText: '优惠50%！'
                     });
@@ -14868,29 +14995,37 @@ function refreshShopItems(isManualRefresh = false, isFreeRefresh = false) {
                 // 50%的概率选择优惠产品
                 const randomIndex = Math.floor(Math.random() * discountItems.length);
                 const selectedItem = discountItems[randomIndex];
+                // 生成随机数量
+                const amount = selectedItem.isBlueprint ? 1 : generateRandomAmount();
+                // 计算总价
+                const totalPrice = selectedItem.basePrice * amount;
                 items.push({ 
-                    name: selectedItem.name, 
-                    price: selectedItem.price,
+                    baseName: selectedItem.baseName,
+                    name: `${selectedItem.baseName}*${amount}`,
+                    amount: amount,
+                    price: totalPrice,
                     isDiscount: selectedItem.isDiscount,
                     discountText: selectedItem.discountText
                 });
             } else {
                 // 优先选择加工台图纸（如果可用）
-                const workshopBlueprint = availableItems.find(item => item.name === '加工台图纸');
+                const workshopBlueprint = availableItems.find(item => item.baseName === '加工台图纸');
                 if (workshopBlueprint && Math.random() < 0.3) {
                     // 30%的概率选择加工台图纸
-                    items.push({ name: workshopBlueprint.name, price: workshopBlueprint.price });
+                    items.push({ 
+                        baseName: workshopBlueprint.baseName,
+                        name: workshopBlueprint.baseName,
+                        amount: 1,
+                        price: workshopBlueprint.basePrice 
+                    });
                 } else {
                     // 应用3级商店的"我需要的功能"
                     let selectedItem = null;
                     
                     if (gameData.shop.level >= 2 && gameData.shop.neededItem) {
                         // 为需要的物品增加概率
-                        const neededItem = availableItems.find(item => {
-                            const [itemBaseName] = item.name.split('*');
-                            const [neededBaseName] = gameData.shop.neededItem.split('*');
-                            return itemBaseName === neededBaseName;
-                        });
+                        const [neededBaseName] = gameData.shop.neededItem.split('*');
+                        const neededItem = availableItems.find(item => item.baseName === neededBaseName);
                         if (neededItem && Math.random() < 0.4) { // 40%概率选择需要的物品
                             selectedItem = neededItem;
                         }
@@ -14902,36 +15037,51 @@ function refreshShopItems(isManualRefresh = false, isFreeRefresh = false) {
                         selectedItem = availableItems[randomIndex];
                     }
                 
+                // 生成随机数量
+                const amount = selectedItem.isBlueprint ? 1 : generateRandomAmount();
                 // 为非优惠产品添加随机打折或涨价
                 let finalItem = { ...selectedItem };
+                let totalPrice = selectedItem.basePrice * amount;
                 
                 // 旅行背包不参与打折优惠
-                if (finalItem.name !== '旅行背包') {
+                if (finalItem.baseName !== '旅行背包') {
                     // 应用3级商店的价格调整
                     if (gameData.shop.level >= 2 && gameData.shop.neededItem) {
-                        const [finalItemBaseName] = finalItem.name.split('*');
                         const [neededBaseName] = gameData.shop.neededItem.split('*');
-                        if (finalItemBaseName === neededBaseName) {
+                        if (finalItem.baseName === neededBaseName) {
                             // 价格为300%
-                            finalItem.price = finalItem.price * 3;
+                            totalPrice = finalItem.basePrice * amount * 3;
                             finalItem.isPriceIncrease = true;
                             finalItem.priceIncreaseText = '需求价格！';
                         }
                     } else if (!finalItem.isDiscount && !isFreeRefresh) {
                         const randomEvent = Math.random();
                         if (randomEvent < 0.1) { // 10%几率打折
-                            finalItem.price = finalItem.price * 0.5;
+                            totalPrice = finalItem.basePrice * amount * 0.5;
                             finalItem.isDiscount = true;
                             finalItem.discountText = '优惠50%！';
                         } else if (randomEvent < 0.2) { // 10%几率涨价
-                            finalItem.price = finalItem.price * 1.5;
+                            totalPrice = finalItem.basePrice * amount * 1.5;
                             finalItem.isPriceIncrease = true;
                             finalItem.priceIncreaseText = '涨价50%！';
                         }
                     }
                 }
                 
-                items.push(finalItem);
+                // 创建最终物品对象并推入数组
+                items.push({
+                    baseName: finalItem.baseName,
+                    name: `${finalItem.baseName}*${amount}`,
+                    amount: amount,
+                    price: totalPrice,
+                    isBlueprint: finalItem.isBlueprint,
+                    isDiscount: finalItem.isDiscount,
+                    discountText: finalItem.discountText,
+                    isPriceIncrease: finalItem.isPriceIncrease,
+                    priceIncreaseText: finalItem.priceIncreaseText,
+                    isSpecial: finalItem.isSpecial,
+                    effect: finalItem.effect
+                });
                 }
             }
         }
@@ -14943,10 +15093,10 @@ function refreshShopItems(isManualRefresh = false, isFreeRefresh = false) {
             if (item.isBlueprint) {
                 // 检查图纸是否已解锁
                 // 对于加工台图纸，只有在加工台已解锁时才过滤
-                if (item.name === '加工台图纸') {
+                if (item.baseName === '加工台图纸') {
                     return !gameData.workshop.unlocked;
                 }
-                return !gameData.shop.unlockedBlueprints[item.name];
+                return !gameData.shop.unlockedBlueprints[item.baseName];
             }
             return true;
         });
@@ -14961,9 +15111,15 @@ function refreshShopItems(isManualRefresh = false, isFreeRefresh = false) {
                     // 从打折物品中随机选择
                     const randomIndex = Math.floor(Math.random() * discountItems.length);
                     const selectedItem = discountItems[randomIndex];
+                    // 生成随机数量
+                    const amount = selectedItem.isBlueprint ? 1 : generateRandomAmount();
+                    // 计算总价
+                    const totalPrice = selectedItem.basePrice * amount;
                     items.push({ 
-                        name: selectedItem.name, 
-                        price: selectedItem.price,
+                        baseName: selectedItem.baseName,
+                        name: `${selectedItem.baseName}*${amount}`,
+                        amount: amount,
+                        price: totalPrice,
                         isDiscount: selectedItem.isDiscount,
                         discountText: selectedItem.discountText
                     });
@@ -14971,11 +15127,16 @@ function refreshShopItems(isManualRefresh = false, isFreeRefresh = false) {
                     // 如果没有打折物品，创建一个打折物品
                     const randomIndex = Math.floor(Math.random() * availableItems.length);
                     const selectedItem = availableItems[randomIndex];
-                    
+                    // 生成随机数量
+                    const amount = selectedItem.isBlueprint ? 1 : generateRandomAmount();
+                    // 计算总价
+                    const totalPrice = selectedItem.basePrice * amount * 0.5;
                     // 创建打折物品（价格减半）
                     items.push({ 
-                        name: selectedItem.name, 
-                        price: selectedItem.price * 0.5,
+                        baseName: selectedItem.baseName,
+                        name: `${selectedItem.baseName}*${amount}`,
+                        amount: amount,
+                        price: totalPrice,
                         isDiscount: true,
                         discountText: '优惠50%！'
                     });
@@ -14984,46 +15145,78 @@ function refreshShopItems(isManualRefresh = false, isFreeRefresh = false) {
                 // 50%的概率选择优惠产品
                 const randomIndex = Math.floor(Math.random() * discountItems.length);
                 const selectedItem = discountItems[randomIndex];
+                // 生成随机数量
+                const amount = selectedItem.isBlueprint ? 1 : generateRandomAmount();
+                // 计算总价
+                const totalPrice = selectedItem.basePrice * amount;
                 items.push({ 
-                    name: selectedItem.name, 
-                    price: selectedItem.price,
+                    baseName: selectedItem.baseName,
+                    name: `${selectedItem.baseName}*${amount}`,
+                    amount: amount,
+                    price: totalPrice,
                     isDiscount: selectedItem.isDiscount,
                     discountText: selectedItem.discountText
                 });
             } else {
                 // 优先选择加工台图纸（如果可用）
-                const workshopBlueprint = availableItems.find(item => item.name === '加工台图纸');
+                const workshopBlueprint = availableItems.find(item => item.baseName === '加工台图纸');
                 if (workshopBlueprint && Math.random() < 0.3) {
                     // 30%的概率选择加工台图纸
-                    items.push({ name: workshopBlueprint.name, price: workshopBlueprint.price });
+                    items.push({ 
+                        baseName: workshopBlueprint.baseName,
+                        name: workshopBlueprint.baseName,
+                        amount: 1,
+                        price: workshopBlueprint.basePrice 
+                    });
                 } else {
                     // 否则随机选择
                     const randomIndex = Math.floor(Math.random() * availableItems.length);
                     let selectedItem = availableItems[randomIndex];
                     
+                    // 生成随机数量
+                    const amount = selectedItem.isBlueprint ? 1 : generateRandomAmount();
                     // 为非优惠产品添加随机打折或涨价
                     let finalItem = { ...selectedItem };
-                    if (!finalItem.isDiscount) {
-                        const randomEvent = Math.random();
-                        if (randomEvent < 0.1) { // 10%几率打折
-                            finalItem.price = finalItem.price * 0.5;
-                            finalItem.isDiscount = true;
-                            finalItem.discountText = '优惠50%！';
-                        } else if (randomEvent < 0.2) { // 10%几率涨价
-                            finalItem.price = finalItem.price * 1.5;
-                            finalItem.isPriceIncrease = true;
-                            finalItem.priceIncreaseText = '涨价50%！';
+                    let totalPrice = selectedItem.basePrice * amount;
+                    
+                    // 旅行背包不参与打折优惠
+                    if (finalItem.baseName !== '旅行背包') {
+                        if (!finalItem.isDiscount) {
+                            const randomEvent = Math.random();
+                            if (randomEvent < 0.1) { // 10%几率打折
+                                totalPrice = finalItem.basePrice * amount * 0.5;
+                                finalItem.isDiscount = true;
+                                finalItem.discountText = '优惠50%！';
+                            } else if (randomEvent < 0.2) { // 10%几率涨价
+                                totalPrice = finalItem.basePrice * amount * 1.5;
+                                finalItem.isPriceIncrease = true;
+                                finalItem.priceIncreaseText = '涨价50%！';
+                            }
                         }
                     }
                     
-                    items.push(finalItem);
+                    items.push({
+                        baseName: finalItem.baseName,
+                        name: `${finalItem.baseName}*${amount}`,
+                        amount: amount,
+                        price: totalPrice,
+                        isBlueprint: finalItem.isBlueprint,
+                        isDiscount: finalItem.isDiscount,
+                        discountText: finalItem.discountText,
+                        isPriceIncrease: finalItem.isPriceIncrease,
+                        priceIncreaseText: finalItem.priceIncreaseText,
+                        isSpecial: finalItem.isSpecial,
+                        effect: finalItem.effect
+                    });
                 }
             }
         } else {
-            // 如果没有可用物品，添加一个基础物品（棉布*100）作为默认物品
+            // 如果没有可用物品，添加一个基础物品（棉布）作为默认物品
             items.push({
+                baseName: '棉布',
                 name: '棉布*100',
-                price: 400,
+                amount: 100,
+                price: 4 * 100, // 基础价格4 * 数量100
                 probability: 0.2
             });
         }
@@ -15033,8 +15226,10 @@ function refreshShopItems(isManualRefresh = false, isFreeRefresh = false) {
     while (items.length < 3) {
         // 直接添加基础物品，绕过过滤逻辑
         items.push({
+            baseName: '棉布',
             name: '棉布*100',
-            price: 400,
+            amount: 100,
+            price: 4 * 100, // 基础价格4 * 数量100
             probability: 0.2
         });
     }
