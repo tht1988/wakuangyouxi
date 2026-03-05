@@ -14846,7 +14846,7 @@ function refreshShopItems(isManualRefresh = false, isFreeRefresh = false) {
         { baseName: '燃料', basePrice: 300, probability: 0.05 },
         { baseName: '木材', basePrice: 10, probability: 0.3 },
         { baseName: '金手套', basePrice: 10000, probability: 0.2, isSpecial: true, effect: 'expBoost' },
-        { baseName: '扎啤', basePrice: 200, probability: 0.2, isSpecial: false, effect: 'intimacyBoost' }
+        { baseName: '扎啤', basePrice: 200, probability: 0.2, isSpecial: true, effect: 'intimacyBoost' }
     ];
     
     // 添加旅行背包到物品池（可通过商店购买获得）
@@ -14962,8 +14962,8 @@ function refreshShopItems(isManualRefresh = false, isFreeRefresh = false) {
                     // 从打折物品中随机选择
                     const randomIndex = Math.floor(Math.random() * discountItems.length);
                     const selectedItem = discountItems[randomIndex];
-                    // 生成随机数量
-                    const amount = selectedItem.isBlueprint ? 1 : generateRandomAmount();
+                    // 生成随机数量，特殊物品（如旅行背包）数量固定为1
+                    const amount = selectedItem.isBlueprint || selectedItem.isSpecial ? 1 : generateRandomAmount();
                     // 计算总价
                     const totalPrice = selectedItem.basePrice * amount;
                     items.push({ 
@@ -14978,8 +14978,8 @@ function refreshShopItems(isManualRefresh = false, isFreeRefresh = false) {
                     // 如果没有打折物品，创建一个打折物品
                     const randomIndex = Math.floor(Math.random() * availableItems.length);
                     const selectedItem = availableItems[randomIndex];
-                    // 生成随机数量
-                    const amount = selectedItem.isBlueprint ? 1 : generateRandomAmount();
+                    // 生成随机数量，特殊物品（如旅行背包）数量固定为1
+                    const amount = selectedItem.isBlueprint || selectedItem.isSpecial ? 1 : generateRandomAmount();
                     // 创建打折物品（价格减半）
                     const totalPrice = selectedItem.basePrice * amount * 0.5;
                     items.push({ 
@@ -14995,8 +14995,8 @@ function refreshShopItems(isManualRefresh = false, isFreeRefresh = false) {
                 // 50%的概率选择优惠产品
                 const randomIndex = Math.floor(Math.random() * discountItems.length);
                 const selectedItem = discountItems[randomIndex];
-                // 生成随机数量
-                const amount = selectedItem.isBlueprint ? 1 : generateRandomAmount();
+                // 生成随机数量，特殊物品（如旅行背包）数量固定为1
+                const amount = selectedItem.isBlueprint || selectedItem.isSpecial ? 1 : generateRandomAmount();
                 // 计算总价
                 const totalPrice = selectedItem.basePrice * amount;
                 items.push({ 
@@ -15037,8 +15037,8 @@ function refreshShopItems(isManualRefresh = false, isFreeRefresh = false) {
                         selectedItem = availableItems[randomIndex];
                     }
                 
-                // 生成随机数量
-                const amount = selectedItem.isBlueprint ? 1 : generateRandomAmount();
+                // 生成随机数量，特殊物品（如旅行背包）数量固定为1
+                const amount = selectedItem.isBlueprint || selectedItem.isSpecial ? 1 : generateRandomAmount();
                 // 为非优惠产品添加随机打折或涨价
                 let finalItem = { ...selectedItem };
                 let totalPrice = selectedItem.basePrice * amount;
@@ -15111,8 +15111,8 @@ function refreshShopItems(isManualRefresh = false, isFreeRefresh = false) {
                     // 从打折物品中随机选择
                     const randomIndex = Math.floor(Math.random() * discountItems.length);
                     const selectedItem = discountItems[randomIndex];
-                    // 生成随机数量
-                    const amount = selectedItem.isBlueprint ? 1 : generateRandomAmount();
+                    // 生成随机数量，特殊物品（如旅行背包）数量固定为1
+                    const amount = selectedItem.isBlueprint || selectedItem.isSpecial ? 1 : generateRandomAmount();
                     // 计算总价
                     const totalPrice = selectedItem.basePrice * amount;
                     items.push({ 
@@ -15127,8 +15127,8 @@ function refreshShopItems(isManualRefresh = false, isFreeRefresh = false) {
                     // 如果没有打折物品，创建一个打折物品
                     const randomIndex = Math.floor(Math.random() * availableItems.length);
                     const selectedItem = availableItems[randomIndex];
-                    // 生成随机数量
-                    const amount = selectedItem.isBlueprint ? 1 : generateRandomAmount();
+                    // 生成随机数量，特殊物品（如旅行背包）数量固定为1
+                    const amount = selectedItem.isBlueprint || selectedItem.isSpecial ? 1 : generateRandomAmount();
                     // 计算总价
                     const totalPrice = selectedItem.basePrice * amount * 0.5;
                     // 创建打折物品（价格减半）
@@ -15145,8 +15145,8 @@ function refreshShopItems(isManualRefresh = false, isFreeRefresh = false) {
                 // 50%的概率选择优惠产品
                 const randomIndex = Math.floor(Math.random() * discountItems.length);
                 const selectedItem = discountItems[randomIndex];
-                // 生成随机数量
-                const amount = selectedItem.isBlueprint ? 1 : generateRandomAmount();
+                // 生成随机数量，特殊物品（如旅行背包）数量固定为1
+                const amount = selectedItem.isBlueprint || selectedItem.isSpecial ? 1 : generateRandomAmount();
                 // 计算总价
                 const totalPrice = selectedItem.basePrice * amount;
                 items.push({ 
@@ -15173,8 +15173,8 @@ function refreshShopItems(isManualRefresh = false, isFreeRefresh = false) {
                     const randomIndex = Math.floor(Math.random() * availableItems.length);
                     let selectedItem = availableItems[randomIndex];
                     
-                    // 生成随机数量
-                    const amount = selectedItem.isBlueprint ? 1 : generateRandomAmount();
+                    // 生成随机数量，特殊物品（如旅行背包）数量固定为1
+                    const amount = selectedItem.isBlueprint || selectedItem.isSpecial ? 1 : generateRandomAmount();
                     // 为非优惠产品添加随机打折或涨价
                     let finalItem = { ...selectedItem };
                     let totalPrice = selectedItem.basePrice * amount;
